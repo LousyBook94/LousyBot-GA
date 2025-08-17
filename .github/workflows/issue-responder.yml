@@ -211,7 +211,17 @@ jobs:
                 })
               });
               
+              if (!response.ok) {
+                throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+              }
+              
               const data = await response.json();
+              
+              if (!data.choices || !data.choices[0] || !data.choices[0].message || !data.choices[0].message.content) {
+                console.error('Unexpected API response:', data);
+                throw new Error('Invalid API response format');
+              }
+              
               return data.choices[0].message.content;
             }
             
