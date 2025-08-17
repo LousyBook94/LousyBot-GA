@@ -358,13 +358,21 @@ jobs:
               const fileContent = await readFile(filePath);
               const prompt = `Analyze this code from "${filePath}" and provide insights:\n\n${fileContent}`;
               
-              return await callLousyBotAPI(prompt);
+              try {
+                return await callLousyBotAPI(prompt);
+              } catch (error) {
+                return `Error analyzing code: ${error.message}`;
+              }
             }
             
             async function suggestFix(description) {
               const prompt = `Based on the issue context and this description: "${description}", suggest a detailed fix for the issue. Provide specific code examples and steps to implement the solution.`;
               
-              return await callLousyBotAPI(prompt);
+              try {
+                return await callLousyBotAPI(prompt);
+              } catch (error) {
+                return `Error suggesting fix: ${error.message}`;
+              }
             }
             
             async function postFinalResponse(response) {
