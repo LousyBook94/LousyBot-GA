@@ -1,0 +1,122 @@
+name: Issue Badge Assignment
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+jobs:
+  assign-badges:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Determine Issue Badge
+        id: badge-determination
+        env:
+          POLLINATIONS_API_URL: ${{ secrets.LB_BASE_URL }}
+          GPT_MODEL: ${{ secrets.LB_MODEL }}
+        run: |
+          # Get issue details
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          ISSUE_BODY="${{ github.event.issue.body }}"
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+          
+          # Prepare prompt for Pollinations API
+          PROMPT="Analyze this GitHub issue and suggest appropriate badges/labels as a JSON response. 
+          Issue Title: \"$ISSUE_TITLE\"
+          Issue Body: \"$ISSUE_BODY\"
+          
+          Return a JSON object with:
+          - \"badges\": array of badge names to assign
+          - \"reason\": explanation for the badge assignment
+          
+          Available badges: bug, enhancement, feature-request, documentation, question, help-wanted, good-first-issue, wontfix, duplicate, invalid"
+          
+          # Call Pollinations API
+          API_RESPONSE=$(curl -s -X POST \
+            "$POLLINATIONS_API_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"$GPT_MODEL\",
+              \"messages\": [
+                {
+                  \"role\": \"user\",
+                  \"content\": \"$PROMPT\"
+                }
+              ],
+              \"max_tokens\": 200,
+              \"temperature\": 0.3
+            }")
+          
+          # Extract badges from API response
+          BADGES=$(echo "$API_RESPONSE" | jq -r '.choices[0].message.content' 2>/dev/null || echo '[]')
+          
+          # Create badge labels array
+          echo "badges=$BADGES" >> $GITHUB_OUTPUT
+          
+          # Log the determination
+          echo "Issue #$ISSUE_NUMBER badge determination: $BADGES"
+      
+      - name: Apply Badges to Issue
+        if: steps.badge-determination.outputs.badges != '[]'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const badges = JSON.parse('${{ steps.badge-determination.outputs.badges }}');
+            const issueNumber = context.issue.number;
+            
+            // Remove existing auto-generated badges (optional)
+            const currentLabels = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Filter out badges that start with 'auto-' or are in our predefined list
+            const existingBadges = currentLabels.data
+              .filter(label => ['bug', 'enhancement', 'feature-request', 'documentation', 'question', 'help-wanted', 'good-first-issue', 'wontfix', 'duplicate', 'invalid'].includes(label.name))
+              .map(label => label.name);
+            
+            // Determine new badges to add
+            const badgesToAdd = badges.filter(badge => !existingBadges.includes(badge));
+            
+            if (badgesToAdd.length > 0) {
+              console.log(`Adding badges: ${badgesToAdd.join(', ')}`);
+              
+              // Add new badges
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: badgesToAdd
+              });
+              
+              // Comment on the issue with badge assignment reason
+              const apiResponse = '${{ steps.badge-determination.outputs.badges }}';
+              const parsedResponse = JSON.parse(apiResponse);
+              const reason = parsedResponse.reason || 'Auto-assigned based on content analysis';
+              
+              let commentMessage = `🏷️ **Auto-badge Assignment**\n\nI have applied badges: ${badgesToAdd.map(badge => `\`${badge}\``).join(', ')} because ${reason}\n\nThis assignment was made using AI analysis with the gpt-5-nano model via Pollinations API.`;
+              
+              // Add special message for negative badges
+              const negativeBadges = ['wontfix', 'duplicate', 'invalid'];
+              const negativeBadgeList = badgesToAdd.filter(badge => negativeBadges.includes(badge));
+              
+              if (negativeBadgeList.length > 0) {
+                commentMessage += `\n\n⚠️ **Important Note:** This issue has been marked as ${negativeBadgeList.map(badge => `\`${badge}\``).join(', ')}. ${reason}`;
+              }
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: commentMessage
+              });
+            } else {
+              console.log('No new badges to add');
+            }

@@ -1,0 +1,64 @@
+# LousyBot Configuration
+# This file contains configuration for LousyBot workflows
+
+# API Configuration
+LB_BASE_URL: ${{ secrets.LB_BASE_URL }}
+LB_MODEL: ${{ secrets.LB_MODEL }}
+LB_API_KEY: ${{ secrets.LB_API_KEY }}
+
+# GitHub App Configuration (for better authentication)
+LB_APP_ID: ${{ secrets.LB_APP_ID }}
+LB_PRIVATE_KEY: ${{ secrets.LB_PRIVATE_KEY }}
+LB_INSTALLATION_ID: ${{ secrets.LB_INSTALLATION_ID }}
+
+# Bot Identity
+LB_BOT_NAME: lousybot
+LB_BOT_USERNAME: @lousybot
+
+# Behavior Settings
+LB_MAX_RESPONSE_LENGTH: 2000
+LB_MAX_TREE_ITEMS: 50
+LB_MAX_COMMENTS_TO_FETCH: 50
+LB_TEMPERATURE: 0.7
+LB_MAX_TOKENS: 2000
+
+# Available Actions
+LB_AVAILABLE_ACTIONS:
+  - read_file
+  - read_issue
+  - list_files
+  - search_files
+  - analyze_code
+  - suggest_fix
+
+# Repository Settings
+LB_SUPPORTED_FILE_TYPES:
+  - .js
+  - .ts
+  - .py
+  - .java
+  - .cpp
+  - .c
+  - .go
+  - .rs
+  - .php
+  - .rb
+  - .swift
+  - .kt
+  - .scala
+  - .md
+  - .json
+  - .yaml
+  - .yml
+  - .xml
+  - .html
+  - .css
+  - .sql
+  - .sh
+  - .bat
+  - .ps1
+
+# Issue Processing Settings
+LB_AUTO_BADGE_ASSIGNMENT: true
+LB_PROCESSING_COMMENT_TIMEOUT: 300000  # 5 minutes in milliseconds
+LB_MAX_MULTI_STEP_ITERATIONS: 30

@@ -1,0 +1,389 @@
+name: Issue Responder
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  respond-to-mentions:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Check for @lousybot mention
+        id: check-mention
+        if: contains(github.event.comment.body, '@lousybot') || contains(github.event.issue.title, '@lousybot') || contains(github.event.issue.body, '@lousybot')
+        run: |
+          echo "mention=true" >> $GITHUB_OUTPUT
+          echo "user=${{ github.event.comment.user.login || github.event.issue.user.login }}" >> $GITHUB_OUTPUT
+          echo "issue_number=${{ github.event.issue.number || github.event.issue.number }}" >> $GITHUB_OUTPUT
+          echo "comment_body='${{ github.event.comment.body || github.event.issue.body }}'" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Add Processing Comment
+        if: steps.check-mention.outputs.mention == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.issue.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `⚙️ **Processing...**\n\nI'm analyzing your request and will get back to you shortly!`
+            });
+      
+      - name: Process Request (Multi-Step)
+        if: steps.check-mention.outputs.mention == 'true'
+        uses: actions/github-script@v7
+        env:
+          LB_BASE_URL: ${{ secrets.LB_BASE_URL }}
+          LB_MODEL: ${{ secrets.LB_MODEL }}
+          LB_API_KEY: ${{ secrets.LB_API_KEY }}
+          LB_MAX_ITERATIONS: 10
+          LB_BOT_NAME: lousybot
+        with:
+          script: |
+            const issueNumber = context.issue.number;
+            const user = '${{ steps.check-mention.outputs.user }}';
+            const commentBody = `${{ steps.check-mention.outputs.comment_body }}`;
+            
+            // Multi-step processing
+            let currentContext = {
+              issue: null,
+              comments: [],
+              repository_tree: [],
+              conversation_history: [],
+              current_step: 0,
+              max_steps: parseInt(process.env.LB_MAX_ITERATIONS) || 10
+            };
+            
+            // Get initial context
+            await gatherInitialContext();
+            
+            // Multi-step processing loop
+            while (currentContext.current_step < currentContext.max_steps) {
+              currentContext.current_step++;
+              
+              // Generate response with current context
+              const response = await generateResponse();
+              
+              // Check if response contains actions
+              const actions = extractActions(response);
+              
+              if (actions.length > 0) {
+                // Execute actions and update context
+                const actionResults = await executeActions(actions);
+                currentContext.conversation_history.push({
+                  step: currentContext.current_step,
+                  response: response,
+                  actions: actions,
+                  results: actionResults
+                });
+                
+                // Generate follow-up response
+                const followUpResponse = await generateFollowUpResponse(actionResults);
+                response = followUpResponse;
+              } else {
+                // No more actions, we're done
+                break;
+              }
+            }
+            
+            // Post final response
+            await postFinalResponse(response);
+            
+            async function gatherInitialContext() {
+              // Get issue details
+              currentContext.issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              
+              // Get all comments
+              const comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              currentContext.comments = comments.data;
+              
+              // Get repository tree
+              try {
+                const repoTree = await github.rest.git.getTree({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tree_sha: 'main',
+                  recursive: 'true'
+                });
+                currentContext.repository_tree = repoTree.data.tree.slice(0, 50);
+              } catch (error) {
+                console.log('Could not get repository tree:', error.message);
+              }
+            }
+            
+            async function generateResponse() {
+              const prompt = `You are LousyBot (username: @${process.env.LB_BOT_NAME}), a helpful AI assistant for this GitHub repository.
+              
+              User @${user} mentioned you in an issue. Here's the full context:
+              
+              Issue Title: "${currentContext.issue.data.title}"
+              Issue Body: "${currentContext.issue.data.body}"
+              Issue Labels: ${currentContext.issue.data.labels.map(l => l.name).join(', ')}
+              Issue State: ${currentContext.issue.data.state}
+              Issue Created: ${currentContext.issue.data.created_at}
+              
+              Comments: ${currentContext.comments.map(c => `[${c.user.login}]: ${c.body}`).join('\n')}
+              
+              Repository Tree (first 50 items):
+              ${currentContext.repository_tree.map(item => `- ${item.type}: ${item.path}`).join('\n')}
+              
+              User's message: "${commentBody}"
+              
+              Available actions:
+              1. read_file <path> - Read file contents
+              2. read_issue <number> - Read another issue for context
+              3. list_files - List files in repository
+              4. search_files <pattern> - Search for files matching pattern
+              5. analyze_code <path> - Analyze code in a file
+              6. suggest_fix <description> - Suggest a fix for the issue
+              
+              Current step: ${currentContext.current_step}/${currentContext.max_steps}
+              
+              Respond naturally as LousyBot. If you need to read files or get more information, clearly state what you're doing with markdown formatting.
+              
+              Example response format:
+              "Hi @${user}! I'll help you with that. Let me read the relevant files first.
+              
+              > 🔍 Reading \`src/main.js\` to understand the codebase...
+              
+              [File content analysis here]
+              
+              Now let me check another related issue...
+              
+              > 📋 Reading issue #123 for additional context...
+              
+              [Issue analysis here]
+              
+              Based on my analysis, here's my suggestion:..."`;
+              
+              const response = await callLousyBotAPI(prompt);
+              return response;
+            }
+            
+            async function generateFollowUpResponse(actionResults) {
+              const prompt = `Continue the conversation as LousyBot. Here are the results of your previous actions:
+              
+              ${actionResults.map(result => `- ${result.action}: ${result.result}`).join('\n')}
+              
+              Continue helping @${user} based on these results. Provide a comprehensive response that incorporates the findings from your actions.`;
+              
+              return await callLousyBotAPI(prompt);
+            }
+            
+            async function callLousyBotAPI(prompt) {
+              const response = await fetch(process.env.LB_BASE_URL, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${process.env.LB_API_KEY}`
+                },
+                body: JSON.stringify({
+                  model: process.env.LB_MODEL,
+                  messages: [
+                    {
+                      role: 'user',
+                      content: prompt
+                    }
+                  ],
+                  max_tokens: 2000,
+                  temperature: 0.7
+                })
+              });
+              
+              const data = await response.json();
+              return data.choices[0].message.content;
+            }
+            
+            function extractActions(response) {
+              const actions = [];
+              const actionPattern = /(read_file|read_issue|list_files|search_files|analyze_code|suggest_fix)\s+([^\n]+)/g;
+              let match;
+              
+              while ((match = actionPattern.exec(response)) !== null) {
+                actions.push({
+                  action: match[1],
+                  parameter: match[2].trim()
+                });
+              }
+              
+              return actions;
+            }
+            
+            async function executeActions(actions) {
+              const results = [];
+              
+              for (const action of actions) {
+                let result = '';
+                
+                try {
+                  switch (action.action) {
+                    case 'read_file':
+                      result = await readFile(action.parameter);
+                      break;
+                    case 'read_issue':
+                      result = await readIssue(action.parameter);
+                      break;
+                    case 'list_files':
+                      result = await listFiles();
+                      break;
+                    case 'search_files':
+                      result = await searchFiles(action.parameter);
+                      break;
+                    case 'analyze_code':
+                      result = await analyzeCode(action.parameter);
+                      break;
+                    case 'suggest_fix':
+                      result = await suggestFix(action.parameter);
+                      break;
+                  }
+                } catch (error) {
+                  result = `Error executing ${action.action}: ${error.message}`;
+                }
+                
+                results.push({
+                  action: action.action,
+                  parameter: action.parameter,
+                  result: result
+                });
+              }
+              
+              return results;
+            }
+            
+            async function readFile(filePath) {
+              try {
+                const fileContent = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path: filePath
+                });
+                
+                if (fileContent.data.type === 'file') {
+                  const content = Buffer.from(fileContent.data.content, 'base64').toString('utf-8');
+                  return `File "${filePath}" content:\n\`\`\`\n${content.substring(0, 1000)}\n\`\`\``;
+                } else {
+                  return `Path "${filePath}" is a directory, not a file.`;
+                }
+              } catch (error) {
+                return `Could not read file "${filePath}": ${error.message}`;
+              }
+            }
+            
+            async function readIssue(issueNumber) {
+              try {
+                const issue = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parseInt(issueNumber)
+                });
+                
+                return `Issue #${issueNumber}:\nTitle: ${issue.data.title}\nBody: ${issue.data.body}\nLabels: ${issue.data.labels.map(l => l.name).join(', ')}`;
+              } catch (error) {
+                return `Could not read issue #${issueNumber}: ${error.message}`;
+              }
+            }
+            
+            async function listFiles() {
+              try {
+                const repoTree = await github.rest.git.getTree({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tree_sha: 'main',
+                  recursive: 'false'
+                });
+                
+                const files = repoTree.data.tree
+                  .filter(item => item.type === 'blob')
+                  .map(item => item.path)
+                  .slice(0, 20);
+                
+                return `Repository files (first 20):\n${files.map(f => `- ${f}`).join('\n')}`;
+              } catch (error) {
+                return `Could not list files: ${error.message}`;
+              }
+            }
+            
+            async function searchFiles(pattern) {
+              try {
+                const repoTree = await github.rest.git.getTree({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tree_sha: 'main',
+                  recursive: 'true'
+                });
+                
+                const matchingFiles = repoTree.data.tree
+                  .filter(item => item.path.includes(pattern))
+                  .map(item => item.path)
+                  .slice(0, 10);
+                
+                return `Files matching "${pattern}":\n${matchingFiles.map(f => `- ${f}`).join('\n')}`;
+              } catch (error) {
+                return `Could not search for files: ${error.message}`;
+              }
+            }
+            
+            async function analyzeCode(filePath) {
+              const fileContent = await readFile(filePath);
+              const prompt = `Analyze this code from "${filePath}" and provide insights:\n\n${fileContent}`;
+              
+              return await callLousyBotAPI(prompt);
+            }
+            
+            async function suggestFix(description) {
+              const prompt = `Based on the issue context and this description: "${description}", suggest a detailed fix for the issue. Provide specific code examples and steps to implement the solution.`;
+              
+              return await callLousyBotAPI(prompt);
+            }
+            
+            async function postFinalResponse(response) {
+              const existingComments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              
+              // Find and update the processing comment
+              const processingComment = existingComments.data.find(comment =>
+                comment.body.includes('⚙️ **Processing...**')
+              );
+              
+              if (processingComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: processingComment.id,
+                  body: response
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  body: response
+                });
+              }
+              
+              console.log(`Multi-step processing completed in ${currentContext.current_step} steps`);
+            }
