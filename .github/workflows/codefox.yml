@@ -1,0 +1,101 @@
+name: Code-Fox Bot
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  codefox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse command
+        id: command
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = context.payload.comment.body;
+            if (!comment.startsWith('@lousybot')) {
+              console.log('Not a command for @lousybot. Exiting.');
+              core.setOutput('is_command', 'false');
+              return;
+            }
+            core.setOutput('is_command', 'true');
+            const commandBody = comment.substring(10).trim();
+            if (commandBody.startsWith('/plan')) {
+              core.setOutput('command', 'plan');
+              const issue = context.payload.issue;
+              const prompt_core = `Please create a plan to solve the following issue:\n\n**Title:** ${issue.title}\n\n**Body:**\n${issue.body}`;
+              core.setOutput('prompt_core', prompt_core);
+              core.setOutput('model', 'openai-reasoning');
+            } else {
+              core.setOutput('command', 'question');
+              core.setOutput('prompt_core', commandBody);
+              core.setOutput('model', 'gpt-5-nano');
+            }
+
+      - name: Gather context
+        if: steps.command.outputs.is_command == 'true'
+        id: context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${{ github.event.issue.pull_request }}" ]; then
+            COMMENTS=$(gh pr view ${{ github.event.issue.number }} --json comments --jq '.comments[].body')
+          else
+            COMMENTS=$(gh issue view ${{ github.event.issue.number }} --json comments --jq '.comments[].body')
+          fi
+          TREE=$(ls -R)
+          README=$(cat README.md)
+          echo "::set-output name=comments::$COMMENTS"
+          echo "::set-output name=tree::$TREE"
+          echo "::set-output name=readme::$README"
+      - name: Construct Final Prompt
+        if: steps.command.outputs.is_command == 'true'
+        id: final_prompt
+        run: |
+          PROMPT_CORE="${{ steps.command.outputs.prompt_core }}"
+          COMMENTS="${{ steps.context.outputs.comments }}"
+          TREE="${{ steps.context.outputs.tree }}"
+          README="${{ steps.context.outputs.readme }}"
+          FINAL_PROMPT="Here is the user's request:\n\n${PROMPT_CORE}\n\nHere is some additional context:\n\n**Comments:**\n${COMMENTS}\n\n**File Tree:**\n\`\`\`\n${TREE}\n\`\`\`\n\n**README:**\n\`\`\`\n${README}\n\`\`\`"
+          # Escape for multiline output
+          FINAL_PROMPT="${FINAL_PROMPT//'%'/'%25'}"
+          FINAL_PROMPT="${FINAL_PROMPT//$'\n'/'%0A'}"
+          FINAL_PROMPT="${FINAL_PROMPT//$'\r'/'%0D'}"
+          echo "::set-output name=prompt::$FINAL_PROMPT"
+      - name: Call Pollinations AI
+        if: steps.command.outputs.is_command == 'true'
+        id: ai
+        run: |
+          PROMPT=$(echo "${{ steps.final_prompt.outputs.prompt }}" | jq -R -s '.')
+          MODEL="${{ steps.command.outputs.model }}"
+          JSON_PAYLOAD=$(jq -n \
+            --arg model "$MODEL" \
+            --argjson prompt "$PROMPT" \
+            '{
+              "model": $model,
+              "messages": [{"role": "user", "content": $prompt}]
+            }')
+          RESPONSE=$(curl -s -X POST https://text.pollinations.ai/openai/chat/completions \
+            -H "Content-Type: application/json" \
+            -d "$JSON_PAYLOAD")
+          echo "AI Response: $RESPONSE"
+          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          # Escape newlines for multiline output
+          CONTENT="${CONTENT//'%'/'%25'}"
+          CONTENT="${CONTENT//$'\n'/'%0A'}"
+          CONTENT="${CONTENT//$'\r'/'%0D'}"
+          echo "::set-output name=content::$CONTENT"
+
+      - name: Post comment
+        if: steps.command.outputs.is_command == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ steps.ai.outputs.content }}
+        run: |
+          gh issue comment $ISSUE_NUMBER --body "$COMMENT_BODY"
