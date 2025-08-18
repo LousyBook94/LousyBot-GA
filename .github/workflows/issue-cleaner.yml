@@ -105,12 +105,27 @@ jobs:
             console.log(`🗑️ Found ${commentsToDelete.length} comments to delete`);
             
             if (commentsToDelete.length === 0) {
-              await github.rest.issues.createComment({
+              const noCommentsMessage = await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                body: '🧹 **Cleanup Complete** - No bot comments found to delete.'
+                body: '🧹 **Cleanup Complete** - No bot comments found to delete.\n\n*This message will self-delete in 10 seconds.*'
               });
+              
+              // Self-delete this message too
+              try {
+                console.log('⏳ Waiting 10 seconds before self-deleting no-comments message...');
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: noCommentsMessage.data.id
+                });
+                console.log('🗑️ Self-deleted no-comments message');
+              } catch (deleteError) {
+                console.log('⚠️ Could not self-delete no-comments message:', deleteError.message);
+              }
               return;
             }
             
@@ -183,6 +198,4 @@ jobs:
             } catch (commentError) {
               console.error('Failed to create error comment:', commentError.message);
             }
-            
-            throw error;
           }

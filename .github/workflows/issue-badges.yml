@@ -42,8 +42,7 @@ jobs:
             const config = {
               model: process.env.LB_MODEL || 'claude',
               baseUrl: process.env.LB_BASE_URL || 'https://text.pollinations.ai/openai/chat/completions',
-              apiKey: process.env.LB_API_KEY,
-              hasGitHubApp: !!((process.env.APP_ID || process.env.LB_APP_ID) && process.env.LB_PRIVATE_KEY)
+              apiKey: process.env.LB_API_KEY
             };
             
             // Validate required configuration
@@ -57,7 +56,7 @@ jobs:
             console.log(`   Model: ${config.model}`);
             console.log(`   Base URL: ${config.baseUrl}`);
             console.log(`   API Key: ***${config.apiKey.slice(-4)}`);
-            console.log(`   GitHub App: ${config.hasGitHubApp ? 'YES' : 'NO'}`);
+            console.log(`   GitHub App: ${(process.env.APP_ID || process.env.LB_APP_ID) && process.env.LB_PRIVATE_KEY ? 'YES' : 'NO'}`);
             
             // Get issue context
             const isManualRequest = context.payload.comment?.body?.includes('@lousybot /badge') || false;
@@ -122,7 +121,7 @@ jobs:
             
             // Make API request
             console.log('🤖 Calling AI API...');
-            const fetch = globalThis.fetch || (await import('node-fetch')).default;
+            const fetch = globalThis.fetch;
             const response = await fetch(config.baseUrl, {
               method: 'POST',
               headers: {
@@ -294,6 +293,4 @@ jobs:
             } catch (commentError) {
               console.error('Failed to create error comment:', commentError.message);
             }
-            
-            throw error;
           }
