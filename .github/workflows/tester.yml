@@ -62,31 +62,44 @@ jobs:
           try {
             console.log('🧪 Testing GitHub Script with GitHub App Token...');
             
-            // Test 1: Get current user
-            const user = await github.rest.users.getAuthenticated();
-            console.log('👤 Authenticated as:', user.data.login);
-            console.log('📧 Email:', user.data.email);
-            console.log('🏢 Name:', user.data.name);
-            
-            // Test 2: Create a test comment
-            const testComment = '🧪 **GitHub Script Test** - This comment was created using GitHub Script with GitHub App Token on ' + new Date().toISOString();
-            
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ github.event.inputs.test_action == 'issue' && '1' || 'github.event.issue.number || 1' }},
-              body: testComment
-            });
-            
-            console.log('✅ Comment created successfully by GitHub Script');
-            
-            // Test 3: Get repository info
+            // Test 1: Get repository info (should work with repo permissions)
             const repo = await github.rest.repos.get({
               owner: context.repo.owner,
               repo: context.repo.repo
             });
             console.log('📁 Repository:', repo.data.full_name);
             console.log('🔗 Default branch:', repo.data.default_branch);
+            console.log('👤 Owner:', repo.data.owner.login);
+            
+            // Test 2: List issues in the repository (should work with issues permissions)
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 1
+            });
+            console.log('🎯 Found', issues.data.length, 'open issue(s)');
+            
+            // Test 3: Create a test comment
+            const issueNumber = ${{ github.event.inputs.test_action == 'issue' && '1' || github.event.issue.number || 1 }};
+            const testComment = '🧪 **GitHub Script Test** - This comment was created using GitHub Script with GitHub App Token on ' + new Date().toISOString();
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: testComment
+            });
+            
+            console.log('✅ Comment created successfully by GitHub Script on issue #' + issueNumber);
+            
+            // Test 4: List labels (should work with issues permissions)
+            const labels = await github.rest.issues.listLabelsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 5
+            });
+            console.log('🏷️ Found', labels.data.length, 'label(s) in repository');
             
           } catch (error) {
             console.error('❌ GitHub Script test failed:', error.message);
@@ -100,22 +113,22 @@ jobs:
       run: |
         echo "🧪 Testing REST API with GitHub App Token..."
         
-        # Test 1: Get authenticated user
-        echo "👤 Getting authenticated user..."
-        user_response=$(curl -s \
+        # Test 1: Get repository info
+        echo "📁 Getting repository info..."
+        repo_response=$(curl -s \
           -H "Authorization: Bearer $GH_TOKEN" \
           -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/user)
+          https://api.github.com/repos/${{ github.repository }})
         
-        echo "User response: $user_response"
+        echo "Repository response: $repo_response"
         
-        user_login=$(echo "$user_response" | jq -r '.login')
-        user_name=$(echo "$user_response" | jq -r '.name')
-        user_email=$(echo "$user_response" | jq -r '.email')
+        repo_name=$(echo "$repo_response" | jq -r '.full_name')
+        repo_owner=$(echo "$repo_response" | jq -r '.owner.login')
+        default_branch=$(echo "$repo_response" | jq -r '.default_branch')
         
-        echo "👤 Authenticated as: $user_login"
-        echo "📧 Email: $user_email"
-        echo "🏢 Name: $user_name"
+        echo "📁 Repository: $repo_name"
+        echo "👤 Owner: $repo_owner"
+        echo "🔗 Default branch: $default_branch"
         
         # Test 2: Create a test comment using REST API
         echo "💬 Creating test comment..."
@@ -147,6 +160,16 @@ jobs:
           echo "❌ Failed to create comment"
           echo "Response: $comment_response"
         fi
+        
+        # Test 3: List repository labels
+        echo "🏷️ Listing repository labels..."
+        labels_response=$(curl -s \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/${{ github.repository }}/labels?per_page=5)
+        
+        label_count=$(echo "$labels_response" | jq '. | length')
+        echo "🏷️ Found $label_count label(s) in repository"
 
     - name: Test GitHub CLI Authentication
       if: ${{ github.event.inputs.test_type == 'github-cli' || github.event.inputs.test_type == 'all' }}
@@ -159,12 +182,15 @@ jobs:
         git config --global user.name "GitHub App Tester"
         git config --global user.email "action@github.com"
         
-        # Test 1: Get authenticated user
-        echo "👤 Getting authenticated user..."
+        # Test 1: Check authentication status
+        echo "🔐 Checking authentication status..."
         gh auth status
-        gh api user --jq '{login: .login, name: .name, email: .email}'
         
-        # Test 2: Create a test comment using GitHub CLI
+        # Test 2: Get repository info
+        echo "📁 Getting repository info..."
+        gh repo view --json nameWithOwner,defaultBranch --jq '{name: .nameWithOwner, branch: .defaultBranch}'
+        
+        # Test 3: Create a test comment using GitHub CLI
         echo "💬 Creating test comment..."
         
         if [ "${{ github.event.inputs.test_action }}" == "issue" ]; then
@@ -176,10 +202,14 @@ jobs:
         test_comment="🧪 **GitHub CLI Test** - This comment was created using GitHub CLI with GitHub App Token on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
         
         if gh issue comment $issue_number --body "$test_comment"; then
-          echo "✅ Comment created successfully by GitHub CLI"
+          echo "✅ Comment created successfully by GitHub CLI on issue #$issue_number"
         else
           echo "❌ Failed to create comment with GitHub CLI"
         fi
+        
+        # Test 4: List repository labels
+        echo "🏷️ Listing repository labels..."
+        gh label list --limit 5 --json name,color
 
     - name: Summary
       if: always()
