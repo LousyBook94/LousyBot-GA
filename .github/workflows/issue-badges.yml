@@ -9,6 +9,8 @@ on:
 jobs:
   assign-badges:
     runs-on: ubuntu-latest
+    # Only run the job when it's an issue event or a comment with '/badge'
+    if: github.event_name == 'issues' || contains(github.event.comment.body, '/badge')
     permissions:
       issues: write
       pull-requests: write
