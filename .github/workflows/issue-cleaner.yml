@@ -73,17 +73,9 @@ jobs:
               }
             }
             
-            // Create a confirmation comment
-            const confirmationComment = `🧹 Cleanup completed! Deleted ${deletedCount} comment(s).`;
-            
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: confirmationComment
-            });
-            
-            console.log(`Cleanup completed. Deleted ${deletedCount} comments.`);
+            // Note: Skipping confirmation comment to avoid "This comment was removed by..." indicators
+            // The cleanup is silent to minimize GitHub's deletion notifications
+            console.log(`Cleanup completed. Deleted ${deletedCount} comments silently.`);
           } else {
             console.log('No cleanup command found in comment.');
           }
