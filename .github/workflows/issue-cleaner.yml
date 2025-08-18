@@ -31,7 +31,7 @@ jobs:
           
           // Get configuration from secrets
           const botName = process.env.GITHUB_ACTOR || 'lousybot';
-          const targetCommand = '@lousybot clear';
+          const targetCommand = '@lousybot /clear';
           
           // Check if comment contains the cleanup command
           if (commentBody.includes(targetCommand)) {
