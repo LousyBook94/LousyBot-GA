@@ -171,12 +171,15 @@ jobs:
             
             // Create error comment
             try {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue?.number,
-                body: `## ⚠️ Cleanup Error\n\nFailed to clean comments: ${error.message}\n\n*Please check the workflow logs for more details.*`
-              });
+              const errorIssueNumber = context.payload.issue?.number || context.payload.comment?.issue_number;
+              if (errorIssueNumber) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: errorIssueNumber,
+                  body: `## ⚠️ Cleanup Error\n\nFailed to clean comments: ${error.message}\n\n*Please check the workflow logs for more details.*`
+                });
+              }
             } catch (commentError) {
               console.error('Failed to create error comment:', commentError.message);
             }
