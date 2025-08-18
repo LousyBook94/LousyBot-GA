@@ -43,7 +43,7 @@ jobs:
               model: process.env.LB_MODEL || 'claude',
               baseUrl: process.env.LB_BASE_URL || 'https://text.pollinations.ai/openai/chat/completions',
               apiKey: process.env.LB_API_KEY,
-              hasGitHubApp: !!(process.env.APP_ID && process.env.LB_PRIVATE_KEY)
+              hasGitHubApp: !!((process.env.APP_ID || process.env.LB_APP_ID) && process.env.LB_PRIVATE_KEY)
             };
             
             // Validate required configuration
@@ -122,6 +122,7 @@ jobs:
             
             // Make API request
             console.log('🤖 Calling AI API...');
+            const fetch = globalThis.fetch || (await import('node-fetch')).default;
             const response = await fetch(config.baseUrl, {
               method: 'POST',
               headers: {
