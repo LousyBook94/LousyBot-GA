@@ -19,19 +19,26 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Generate Issue Badges
+      env:
+        LB_MODEL: ${{ secrets.LB_MODEL }}
+        LB_BASE_URL: ${{ secrets.LB_BASE_URL }}
+        LB_API_KEY: ${{ secrets.LB_API_KEY }}
+        LB_APP_ID: ${{ secrets.LB_APP_ID }}
+        LB_INSTALLATION_ID: ${{ secrets.LB_INSTALLATION_ID }}
+        LB_PRIVATE_KEY: ${{ secrets.LB_PRIVATE_KEY }}
       uses: actions/github-script@v7
       with:
         script: |
           const fs = require('fs');
           const path = require('path');
           
-          // Get configuration from secrets
-          const model = secrets.LB_MODEL || 'claude';
-          const baseUrl = secrets.LB_BASE_URL || 'https://text.pollinations.ai/openai/chat/completions';
-          const apiKey = secrets.LB_API_KEY;
-          const app_id = secrets.LB_APP_ID;
-          const installation_id = secrets.LB_INSTALLATION_ID;
-          const private_key = secrets.LB_PRIVATE_KEY;
+          // Get configuration from environment variables
+          const model = process.env.LB_MODEL || 'claude';
+          const baseUrl = process.env.LB_BASE_URL || 'https://text.pollinations.ai/openai/chat/completions';
+          const apiKey = process.env.LB_API_KEY;
+          const app_id = process.env.LB_APP_ID;
+          const installation_id = process.env.LB_INSTALLATION_ID;
+          const private_key = process.env.LB_PRIVATE_KEY;
           
           // Detailed error checking with specific messages
           if (!apiKey) {
