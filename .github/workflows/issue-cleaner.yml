@@ -27,6 +27,7 @@ jobs:
     - name: Clean Comments
       env:
         GITHUB_TOKEN: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
+        APP_ID: ${{ vars.APP_ID }}
       uses: actions/github-script@v7
       with:
         script: |
@@ -152,18 +153,19 @@ jobs:
             console.log(`🎉 Cleanup completed: ${deletedCount} deleted, ${failedCount} failed`);
             
             // Self-delete the summary comment after a delay
-            setTimeout(async () => {
-              try {
-                await github.rest.issues.deleteComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: summaryComment.data.id
-                });
-                console.log('🗑️ Self-deleted summary comment');
-              } catch (error) {
-                console.log('⚠️ Could not self-delete summary comment:', error.message);
-              }
-            }, 10000);
+            try {
+              console.log('⏳ Waiting 10 seconds before self-deleting summary comment...');
+              await new Promise(resolve => setTimeout(resolve, 10000));
+              
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: summaryComment.data.id
+              });
+              console.log('🗑️ Self-deleted summary comment');
+            } catch (deleteError) {
+              console.log('⚠️ Could not self-delete summary comment:', deleteError.message);
+            }
             
           } catch (error) {
             console.error('❌ Error in comment cleanup:', error.message);

@@ -32,6 +32,7 @@ jobs:
         LB_MODEL: ${{ secrets.LB_MODEL }}
         LB_BASE_URL: ${{ secrets.LB_BASE_URL }}
         LB_API_KEY: ${{ secrets.LB_API_KEY }}
+        APP_ID: ${{ vars.APP_ID }}
       uses: actions/github-script@v7
       with:
         script: |
@@ -195,9 +196,9 @@ jobs:
             // Apply suggested labels
             if (suggestedLabels.length > 0) {
               try {
-                const currentLabelNames = labels;
+                const existingLabels = labels;
                 const newLabels = suggestedLabels.filter(label => 
-                  !currentLabelNames.includes(label) && 
+                  !existingLabels.includes(label) && 
                   typeof label === 'string' && 
                   label.length > 0
                 );
