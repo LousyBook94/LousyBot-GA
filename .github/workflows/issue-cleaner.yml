@@ -102,11 +102,11 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: '🧹 **Cleanup Complete** - No bot comments found to delete.\n\n*This message will self-delete in 10 seconds.*'
+              body: '🧹 **Cleanup Complete** - No bot comments found to delete.\n\n*This message will self-delete in 60 seconds.*'
             });
 
             try {
-              await new Promise(resolve => setTimeout(resolve, 10000));
+              await new Promise(resolve => setTimeout(resolve, 60000));
               await github.rest.issues.deleteComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -141,7 +141,7 @@ jobs:
           if (failedCount > 0) {
             summaryMessage += `- ❌ Failed: ${failedCount} comments\n`;
           }
-          summaryMessage += `\n*This comment will self-delete in 10 seconds to keep the issue clean.*`;
+          summaryMessage += `\n*This comment will self-delete in 60 seconds to keep the issue clean.*`;
 
           const summaryComment = await github.rest.issues.createComment({
             owner: context.repo.owner,
@@ -151,7 +151,7 @@ jobs:
           });
 
           try {
-            await new Promise(resolve => setTimeout(resolve, 10000));
+            await new Promise(resolve => setTimeout(resolve, 60000));
             await github.rest.issues.deleteComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
