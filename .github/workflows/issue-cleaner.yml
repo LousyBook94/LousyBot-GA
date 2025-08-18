@@ -33,6 +33,10 @@ jobs:
           const botName = process.env.GITHUB_ACTOR || 'lousybot';
           const targetCommand = '@lousybot /clear';
           
+          // Check if GitHub App credentials are available
+          const hasGitHubApp = process.env.LB_APP_ID && process.env.LB_PRIVATE_KEY;
+          console.log(`GitHub App credentials available: ${hasGitHubApp}`);
+          
           // Check if comment contains the cleanup command
           if (commentBody.includes(targetCommand)) {
             console.log('Cleanup command detected, processing...');
@@ -50,7 +54,8 @@ jobs:
             const commentsToDelete = comments.data.filter(c => {
               const isBotComment = c.user.login === botName;
               const hasBotMention = c.body.includes('@lousybot');
-              return isBotComment || hasBotMention;
+              const isGitHubActionsBot = c.user.login === 'github-actions[bot]';
+              return isBotComment || hasBotMention || (!hasGitHubApp && isGitHubActionsBot);
             });
             
             // Delete the comments
