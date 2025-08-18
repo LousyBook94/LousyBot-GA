@@ -1,109 +1,152 @@
 # LousyBot-GA
 
-A GitHub Action bot that generates issue badges and cleans up comments using the Pollinations AI API.
+A robust GitHub Actions bot that automatically generates intelligent issue badges and provides comment cleanup functionality using AI-powered analysis.
 
-## Features
+## ✨ Features
 
-### 🏷️ Issue Badges
-- Automatically analyzes GitHub issues and generates relevant badges
-- Triggers on issue creation, editing, labeling, and unlabeling
-- Uses AI to understand issue content and suggest appropriate badges
+### 🏷️ Smart Issue Badges
+- **Automatic Analysis**: Uses AI to analyze issue content and generate relevant badges
+- **Multi-dimensional Badges**: Creates badges for priority, type, complexity, and status
+- **Label Suggestions**: Automatically suggests and applies appropriate GitHub labels
+- **Robust Error Handling**: Gracefully handles API failures and malformed responses
+- **Manual Triggers**: Support for on-demand badge generation via `@lousybot /badge`
 
-### 🧹 Issue Cleaner
-- Cleans up comments containing `@lousybot clear` command
-- Deletes all bot messages and messages mentioning @lousybot
-- Provides confirmation when cleanup is complete
+### 🧹 Intelligent Comment Cleaner
+- **Multiple Commands**: Supports `/clear`, `clear`, `/clean`, and `clean` commands
+- **Smart Filtering**: Identifies and removes bot-generated comments and badge comments
+- **Self-Cleaning**: Summary messages auto-delete to keep issues tidy
+- **Comprehensive Cleanup**: Removes all @lousybot mentions and related comments
 
-## Setup
+### 🔧 Technical Improvements
+- **No More Double Comments**: Fixed duplicate comment generation
+- **Proper JSON Parsing**: Robust handling of different AI response formats
+- **GitHub App Support**: Full integration with GitHub Apps for enhanced permissions
+- **Comprehensive Error Handling**: Detailed error reporting and graceful fallbacks
+- **Configurable AI Models**: Support for multiple AI providers and models
 
-### Required GitHub Secrets
+## 🚀 Quick Start
 
-Configure the following secrets in your repository settings (Settings > Secrets and variables > Actions):
+1. **Copy workflows** to your `.github/workflows/` directory
+2. **Add required secrets** to your repository settings
+3. **Create an issue** to test automatic badge generation
+4. **Use `@lousybot /clear`** to test comment cleanup
 
-1. **LB_API_KEY** - Your API key for the Pollinations/OpenAI compatible service
-2. **LB_MODEL** - (Optional) Model to use for AI generation (default: "claude")
-3. **LB_BASE_URL** - (Optional) Base URL for the API (default: "https://text.pollinations.ai/openai/chat/completions")
+For detailed setup instructions, see [SETUP.md](SETUP.md).
 
-### GitHub App Integration (Optional)
+## 📋 Requirements
 
-For enhanced functionality, you can register a GitHub App:
+### Required Secrets
+- `LB_API_KEY` - Your AI service API key
 
-1. Go to GitHub Developer settings
-2. Create a new GitHub App
-3. Configure the following permissions:
-   - Issues: Read & Write
-   - Pull requests: Read & Write
-4. Install the app to your repository
-5. Use the app's installation ID and private key in your secrets
+### Optional Configuration
+- `LB_MODEL` - AI model (default: `claude`)
+- `LB_BASE_URL` - API endpoint (default: Pollinations AI)
+- `APP_ID` - GitHub App ID (for enhanced permissions)
+- `LB_PRIVATE_KEY` - GitHub App private key
 
-## Usage
+## 🎯 Usage Examples
 
-### Issue Badges
-The issue-badges workflow automatically triggers when:
-- A new issue is created
-- An existing issue is edited
-- Labels are added or removed to an issue
-
-The bot will analyze the issue content and post a comment with generated badges.
-
-### Issue Cleaner
-To clean up comments, simply post a comment containing:
+### Automatic Badge Generation
 ```
+# Triggers automatically on:
+- New issues created
+- Issue edits
+- Label changes
+- Comments added
+```
+
+### Manual Badge Generation
+```
+@lousybot /badge
+```
+
+### Comment Cleanup
+```
+@lousybot /clear
 @lousybot clear
+@lousybot /clean
+@lousybot clean
 ```
 
-The bot will then:
-1. Delete all comments made by the bot
-2. Delete all comments mentioning @lousybot
-3. Post a confirmation message
+## 🔧 Supported AI Services
 
-## Testing
+### Pollinations AI (Default)
+- Free tier available
+- Multiple models: `claude`, `gpt-3.5-turbo`, `gpt-4`
+- No registration required for basic usage
 
-### API Testing
-Use the provided `api.ps1` script to test the API endpoint:
+### OpenAI Compatible APIs
+- OpenAI API
+- Anthropic Claude API
+- Custom endpoints
+- Any OpenAI-compatible service
 
+## 📊 Badge Types Generated
+
+The AI analyzes issues and generates badges for:
+- **Priority**: 🔥 High, 🟡 Medium, 🟢 Low
+- **Type**: 🐛 Bug, ✨ Feature, 📚 Documentation, ❓ Question
+- **Complexity**: 🧩 Complex, 🔧 Moderate, ⚡ Simple
+- **Status**: 🛠️ Needs Investigation, 🔍 Needs Review, ✅ Ready
+
+## 🛠️ What's Fixed
+
+This version addresses all major issues from the original:
+
+### ✅ Resolved Issues
+- **ReferenceError: badges is not defined** - Fixed variable initialization
+- **Double commenting** - Separated manual and automatic comment flows
+- **Broken JSON parsing** - Robust JSON extraction and fallback handling
+- **GitHub App integration** - Proper environment variable handling
+- **Poor error handling** - Comprehensive try-catch blocks and error reporting
+- **Malformed badge output** - Clean markdown formatting
+
+### 🔄 Improvements
+- **Better AI prompts** - More specific instructions for consistent output
+- **Fallback mechanisms** - Default badges when AI fails
+- **Self-cleaning comments** - Temporary messages auto-delete
+- **Enhanced logging** - Detailed console output for debugging
+- **Flexible command parsing** - Multiple cleanup command variations
+
+## 📚 Documentation
+
+- [SETUP.md](SETUP.md) - Comprehensive setup guide
+- [Workflow Logs](../../actions) - Check execution details
+- [Issues](../../issues) - Report bugs or request features
+
+## 🧪 Testing
+
+Test the API connection:
 ```powershell
 .\api.ps1
 ```
 
-This will test different models and show you how to extract content from the API response.
+Test workflows:
+1. Create a test issue
+2. Comment `@lousybot /badge` 
+3. Comment `@lousybot /clear`
 
-## Configuration Examples
+## 🔒 Security
 
-### Basic Configuration
-```yaml
-# GitHub Secrets
-LB_API_KEY: your-api-key-here
-LB_MODEL: claude
-LB_BASE_URL: https://text.pollinations.ai/openai/chat/completions
-```
+- All sensitive data stored in GitHub Secrets
+- Minimal required permissions
+- No data stored or logged externally
+- Regular security updates
 
-### Advanced Configuration with GitHub App
-```yaml
-# GitHub Secrets
-LB_API_KEY: your-api-key-here
-LB_MODEL: gpt-4
-LB_BASE_URL: https://text.pollinations.ai/openai/chat/completions
-APP_ID: your-app-id
-APP_PRIVATE_KEY: your-private-key
-```
+## 🤝 Contributing
 
-## Troubleshooting
+1. Fork the repository
+2. Create a feature branch
+3. Test your changes thoroughly
+4. Submit a pull request
 
-### Common Issues
+## 📄 License
 
-1. **API Key Issues**
-   - Ensure LB_API_KEY is properly configured
-   - Check that the API key has access to the specified model
+MIT License - see [LICENSE](LICENSE) for details.
 
-2. **Permission Issues**
-   - Ensure the workflow has proper permissions (issues: write, pull-requests: write)
-   - Check if you're using a GitHub App with correct permissions
+## 🆘 Support
 
-3. **Workflow Not Triggering**
-   - Verify the workflow triggers are correct
-   - Check that the repository has Actions enabled
-
-## License
-
-This project is open source and available under the MIT License.
+- Check [SETUP.md](SETUP.md) for troubleshooting
+- Review workflow logs in the Actions tab
+- Create an issue for bugs or feature requests
+- Check existing issues for common problems

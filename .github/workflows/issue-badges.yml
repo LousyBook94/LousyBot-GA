@@ -32,206 +32,265 @@ jobs:
         LB_MODEL: ${{ secrets.LB_MODEL }}
         LB_BASE_URL: ${{ secrets.LB_BASE_URL }}
         LB_API_KEY: ${{ secrets.LB_API_KEY }}
+        APP_ID: ${{ vars.APP_ID }}
+        LB_PRIVATE_KEY: ${{ secrets.LB_PRIVATE_KEY }}
       uses: actions/github-script@v7
       with:
         script: |
-          const fs = require('fs');
-          const path = require('path');
-          
-          // Get configuration from environment variables
-          const model = process.env.LB_MODEL || 'claude';
-          const baseUrl = process.env.LB_BASE_URL || 'https://text.pollinations.ai/openai/chat/completions';
-          const apiKey = process.env.LB_API_KEY;
-          const app_id = process.env.LB_APP_ID;
-          const installation_id = process.env.LB_INSTALLATION_ID;
-          const private_key = process.env.LB_PRIVATE_KEY;
-          
-          // Detailed error checking with specific messages
-          if (!apiKey) {
-            console.error('❌ ERROR: LB_API_KEY secret is required but not found!');
-            console.error('   Please check your repository secrets in Settings > Secrets and variables > Actions');
-            console.error('   Required secrets: LB_API_KEY');
-            console.error('   Optional secrets: LB_MODEL, LB_BASE_URL, LB_APP_ID, LB_INSTALLATION_ID, LB_PRIVATE_KEY');
-            throw new Error('LB_API_KEY secret is required. Please check repository secrets.');
-          }
-          
-          console.log('✅ Configuration loaded:');
-          console.log(`   Model: ${model}`);
-          console.log(`   Base URL: ${baseUrl}`);
-          console.log(`   API Key: ${apiKey ? '***' + apiKey.slice(-4) : 'NOT FOUND'}`);
-          console.log(`   GitHub App: ${app_id ? 'YES' : 'NO'}`);
-          console.log(`   Multi-badge support: ENABLED`);
-          
-          // Check if this is a manual badge request
-          const isManualRequest = context.payload.comment ? context.payload.comment.body.includes('@lousybot /badge') : false;
-          const issue = context.payload.issue || context.payload.comment.issue;
-          const issueNumber = issue.number;
-          const issueTitle = issue.title;
-          const issueBody = issue.body || '';
-          const labels = issue.labels.map(label => label.name);
-          
-          // Get context of other comments on the issue
-          let commentsContext = '';
           try {
+            // Configuration
+            const config = {
+              model: process.env.LB_MODEL || 'claude',
+              baseUrl: process.env.LB_BASE_URL || 'https://text.pollinations.ai/openai/chat/completions',
+              apiKey: process.env.LB_API_KEY
+            };
+            
+            // Validate required configuration
+            if (!config.apiKey) {
+              console.error('❌ ERROR: LB_API_KEY secret is required but not found!');
+              console.error('   Please check your repository secrets in Settings > Secrets and variables > Actions');
+              throw new Error('LB_API_KEY secret is required. Please check repository secrets.');
+            }
+            
+            console.log('✅ Configuration loaded:');
+            console.log(`   Model: ${config.model}`);
+            console.log(`   Base URL: ${config.baseUrl}`);
+            console.log(`   API Key: ***${config.apiKey.slice(-4)}`);
+            console.log(`   GitHub App: ${(process.env.APP_ID || process.env.LB_APP_ID) && process.env.LB_PRIVATE_KEY ? 'YES' : 'NO'}`);
+            
+            // Get issue context
+            const isManualRequest = context.payload.comment?.body?.includes('@lousybot /badge') || false;
+            const issue = context.payload.issue || context.payload.comment?.issue;
+            
+            if (!issue) {
+              console.log('⚠️ No issue found in context, skipping badge generation');
+              return;
+            }
+            
+            const issueNumber = issue.number;
+            const issueTitle = issue.title;
+            const issueBody = issue.body || '';
+            const labels = issue.labels?.map(label => label.name) || [];
+            
+            console.log(`🎯 Processing issue #${issueNumber}: ${issueTitle}`);
+            if (isManualRequest) {
+              console.log('🎯 Manual badge request detected');
+            }
+            
+            // Get recent comments for context
+            let commentsContext = '';
+            try {
+              const comments = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              
+              const recentComments = comments.data.slice(-3);
+              if (recentComments.length > 0) {
+                commentsContext = '\n\nRecent Comments:\n' +
+                  recentComments.map(comment =>
+                    `${comment.user.login}: ${comment.body.substring(0, 100)}${comment.body.length > 100 ? '...' : ''}`
+                  ).join('\n');
+              }
+            } catch (error) {
+              console.log('⚠️ Could not fetch comments for context:', error.message);
+            }
+            
+            // Create AI prompt for better badge generation
+            const systemPrompt = `You are a GitHub issue analyzer. Generate concise, relevant badges for issues.
+            
+            Respond with ONLY a JSON object in this exact format:
+            {
+              "badges": [
+                {"name": "Priority", "value": "🔥 High", "color": "red"},
+                {"name": "Type", "value": "🐛 Bug", "color": "orange"}
+              ],
+              "labels": ["bug", "high-priority"]
+            }
+            
+            Keep badges short and use appropriate emojis. Focus on: priority, type, complexity, status.`;
+            
+            const userPrompt = `Issue: ${issueTitle}
+            
+            Description: ${issueBody}
+            
+            Current Labels: ${labels.join(', ') || 'None'}${commentsContext}
+            
+            Generate 2-4 relevant badges and suggest appropriate GitHub labels.`;
+            
+            // Make API request
+            console.log('🤖 Calling AI API...');
+            const fetch = globalThis.fetch;
+            const response = await fetch(config.baseUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.apiKey}`
+              },
+              body: JSON.stringify({
+                model: config.model,
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: userPrompt }
+                ],
+                max_tokens: 400,
+                temperature: 0.7
+              })
+            });
+            
+            if (!response.ok) {
+              throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            const responseText = data.choices?.[0]?.message?.content?.trim();
+            
+            if (!responseText) {
+              throw new Error('Empty response from AI API');
+            }
+            
+            console.log('📝 AI Response received');
+            
+            // Parse AI response
+            let badges = [];
+            let suggestedLabels = [];
+            
+            try {
+              // Try to extract JSON from response
+              const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsedResponse = JSON.parse(jsonMatch[0]);
+                
+                if (parsedResponse.badges && Array.isArray(parsedResponse.badges)) {
+                  badges = parsedResponse.badges.map(badge => 
+                    `**${badge.name}**: ${badge.value}`
+                  );
+                } else if (parsedResponse.badges && typeof parsedResponse.badges === 'object') {
+                  badges = Object.entries(parsedResponse.badges).map(([key, value]) =>
+                    `**${key.charAt(0).toUpperCase() + key.slice(1)}**: ${value}`
+                  );
+                }
+                
+                suggestedLabels = parsedResponse.labels || [];
+              }
+            } catch (parseError) {
+              console.log('⚠️ Failed to parse JSON response, using fallback');
+              // Fallback: extract badge-like content from response
+              const lines = responseText.split('\n').filter(line => 
+                line.trim() && (line.includes(':') || line.includes('**'))
+              );
+              badges = lines.slice(0, 4); // Limit to 4 badges
+            }
+            
+            // Ensure we have at least some badges
+            if (badges.length === 0) {
+              badges = [
+                `**Type**: 📝 Issue`,
+                `**Status**: 🔍 Needs Review`
+              ];
+            }
+            
+            console.log(`🎯 Generated ${badges.length} badge(s)`);
+            console.log(`🏷️ Suggested ${suggestedLabels.length} label(s)`);
+            
+            // Apply suggested labels
+            if (suggestedLabels.length > 0) {
+              try {
+                const existingLabels = labels;
+                const newLabels = suggestedLabels.filter(label => 
+                  !existingLabels.includes(label) && 
+                  typeof label === 'string' && 
+                  label.length > 0
+                );
+                
+                if (newLabels.length > 0) {
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    labels: newLabels
+                  });
+                  console.log(`✅ Applied ${newLabels.length} new label(s): ${newLabels.join(', ')}`);
+                }
+              } catch (labelError) {
+                console.log('⚠️ Failed to apply labels:', labelError.message);
+              }
+            }
+            
+            // Format badges for display
+            const formatBadges = (badgeList) => {
+              if (!badgeList || badgeList.length === 0) {
+                return '**Status**: 📝 Issue Created';
+              }
+              return badgeList.map(badge => `${badge}`).join('\n');
+            };
+            
+            // Handle manual requests differently - don't create persistent comment
+            if (isManualRequest) {
+              const manualBadgeContent = `🏅 **Generated Badges**\n\n${formatBadges(badges)}`;
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: manualBadgeContent
+              });
+              console.log(`✅ Manual badge request completed`);
+              return;
+            }
+            
+            // Create or update persistent badge comment
+            const commentContent = `## 🏷️ Issue Badges\n\n${formatBadges(badges)}\n\n---\n*Generated by LousyBot-GA*`;
+            
+            // Check for existing badge comment
             const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber
             });
             
-            // Get recent comments (last 5) for context
-            const recentComments = comments.data.slice(-5);
-            if (recentComments.length > 0) {
-              commentsContext = '\n\nRecent Comments:\n' +
-                recentComments.map(comment =>
-                  `${comment.user.login}: ${comment.body.substring(0, 100)}${comment.body.length > 100 ? '...' : ''}`
-                ).join('\n');
+            const existingComment = comments.data.find(comment =>
+              comment.body.includes('🏷️ Issue Badges') && 
+              comment.body.includes('Generated by LousyBot-GA')
+            );
+            
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: commentContent
+              });
+              console.log(`✅ Updated existing badges comment`);
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: commentContent
+              });
+              console.log(`✅ Created new badges comment`);
             }
+            
+            console.log(`🎉 Badge generation completed successfully!`);
+            
           } catch (error) {
-            console.log('⚠️ Could not fetch comments for context:', error.message);
-          }
-          
-          if (isManualRequest) {
-            console.log('🎯 Manual badge request detected');
-          }
-          
-          // Create API payload
-          const payload = {
-            model: model,
-            messages: [
-              {
-                role: "system",
-                content: "You are a helpful assistant that analyzes GitHub issues and generates appropriate badges and labels. Respond with JSON format: {\"badges\": \"[badge-name]: badge-description\", \"labels\": [\"label1\", \"label2\"]}. Generate multiple badges for different aspects and suggest relevant GitHub labels to apply to the issue."
-              },
-              {
-                role: "user",
-                content: `Issue Title: ${issueTitle}\nIssue Body: ${issueBody}\nCurrent Labels: ${labels.join(', ')}${commentsContext}\n\nGenerate appropriate badges and suggest GitHub labels for this issue. Create multiple badges for different aspects like priority, type, status, complexity, etc. and suggest relevant labels that should be applied to this GitHub issue. Consider the conversation context from recent comments when making your recommendations.`
-              }
-            ],
-            max_tokens: 300
-          };
-          
-          // Make API request
-          const response = await fetch(baseUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify(payload)
-          });
-          
-          if (!response.ok) {
-            throw new Error(`API request failed: ${response.status} ${response.statusText}`);
-          }
-          
-          const data = await response.json();
-          let responseText = data.choices[0].message.content.trim();
-          
-          // Initialize badges array and variables
-          let badges = [];
-          let suggestedLabels = [];
-          let isJsonFormat = false;
-          
-          try {
-            // Try to parse JSON response (new format)
-            const parsedResponse = JSON.parse(responseText);
+            console.error('❌ Error in badge generation:', error.message);
+            console.error('Stack trace:', error.stack);
             
-            if (parsedResponse.badges && typeof parsedResponse.badges === 'object') {
-              // JSON format with badges object
-              isJsonFormat = true;
-              badges = Object.entries(parsedResponse.badges).map(([key, value]) =>
-                `**${key.replace(/-/g, ' ')}**: ${value}`
-              );
-            } else if (parsedResponse.badges) {
-              // Badges as string
-              badges = parsedResponse.badges.split('\n').filter(badge => badge.trim().length > 0);
-            }
-            
-            suggestedLabels = parsedResponse.labels || [];
-            
-            console.log(`🎯 Found ${badges.length} badge(s) to generate`);
-            console.log(`🏷️ Suggested ${suggestedLabels.length} label(s) to apply`);
-            console.log(`📄 Format: ${isJsonFormat ? 'JSON' : 'Plain Text'}`);
-            
-            // Apply suggested labels to the issue
-            if (suggestedLabels.length > 0) {
-              // Get current labels to avoid duplicates
-              const currentLabelNames = labels.map(label => label.name);
-              const newLabels = suggestedLabels.filter(label => !currentLabelNames.includes(label));
-              
-              if (newLabels.length > 0) {
-                await github.rest.issues.addLabels({
+            // Create error comment for debugging
+            try {
+              const errorIssueNumber = context.payload.issue?.number || context.payload.comment?.issue_number;
+              if (errorIssueNumber) {
+                await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  labels: newLabels
+                  issue_number: errorIssueNumber,
+                  body: `## ⚠️ Badge Generation Error\n\nFailed to generate badges: ${error.message}\n\n*Please check the workflow logs for more details.*`
                 });
-                console.log(`✅ Applied ${newLabels.length} new label(s): ${newLabels.join(', ')}`);
-              } else {
-                console.log('ℹ️ All suggested labels already exist on the issue');
               }
+            } catch (commentError) {
+              console.error('Failed to create error comment:', commentError.message);
             }
-          } catch (parseError) {
-            // Fallback to old format (plain text badges)
-            badges = responseText.split('\n').filter(badge => badge.trim().length > 0);
-            console.log(`🎯 Found ${badges.length} badge(s) to generate (fallback format)`);
           }
-          
-          // Create formatted badge content
-          const formatBadges = (badgeList) => {
-            if (!badgeList || badgeList.length === 0) return 'No badges generated.';
-            
-            return badgeList.map(badge => `- ${badge}`).join('\n');
-          };
-          
-          // For manual requests, post the badge as a comment
-          if (isManualRequest) {
-            const manualBadgeContent = badges.length > 1
-              ? `🏅 Generated Badges (${badges.length} total):\n\n${formatBadges(badges)}`
-              : `🏅 Generated Badge:\n\n${formatBadges(badges)}`;
-            
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: manualBadgeContent
-            });
-            console.log(`✅ Badge(s) posted as comment: ${badges.length} badge(s) generated`);
-          }
-          
-          // Create or update issue comment with badges
-          const commentContent = `## 🏷️ Issue Badges\n\n${formatBadges(badges)}\n\n---\n*Generated by LousyBot-GA*`;
-          
-          // Check if comment already exists
-          const comments = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: issueNumber
-          });
-          
-          const existingComment = comments.data.find(comment =>
-            comment.body.includes('🏷️ Issue Badges') && comment.body.includes('Generated by LousyBot-GA')
-          );
-          
-          if (existingComment) {
-            // Update existing comment
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: existingComment.id,
-              body: commentContent
-            });
-            console.log(`✅ Updated existing badges comment`);
-          } else {
-            // Create new comment
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: commentContent
-            });
-            console.log(`✅ Created new badges comment`);
-          }
-          
-          console.log(`🎉 Badges generated and posted successfully! (${badges.length} badge(s) total)`);
