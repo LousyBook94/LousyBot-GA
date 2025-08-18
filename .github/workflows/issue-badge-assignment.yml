@@ -1,0 +1,270 @@
+name: Issue Badge Assignment
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled]
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  assign-badge:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Analyze issue content with comment context
+      id: analyze
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = context.payload.issue || context.payload.pull_request;
+          const comment = context.payload.comment;
+          
+          let issueNumber = issue ? issue.number : (comment ? comment.issue_number : null);
+          let content = '';
+          let allComments = '';
+          
+          // Get issue details and all comments for context
+          if (issueNumber) {
+            const issueData = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Get all comments on the issue
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Build comprehensive content from issue and all comments
+            content = (issueData.data.body || '') + ' ' + (issueData.data.title || '');
+            allComments = comments.data.map(c => c.body || '').join(' ');
+            
+            // Check if any content mentions badge or needs categorization
+            const fullContent = (content + ' ' + allComments).toLowerCase();
+            const needsBadge = fullContent.includes('badge') ||
+                             fullContent.includes('status') ||
+                             fullContent.includes('priority') ||
+                             fullContent.includes('label') ||
+                             fullContent.includes('categorize') ||
+                             fullContent.includes('tag');
+                             
+            const hasLousyBotMention = fullContent.includes('@lousybot');
+            
+            return {
+              needsBadge,
+              hasLousyBotMention,
+              content: content.substring(0, 500) + (content.length > 500 ? '...' : ''),
+              allComments: allComments.substring(0, 1000) + (allComments.length > 1000 ? '...' : ''),
+              issueNumber: issueNumber,
+              commentId: comment ? comment.id : null,
+              fullContext: fullContent.substring(0, 1000) + (fullContent.length > 1000 ? '...' : '')
+            };
+          }
+          
+          return {
+            needsBadge: false,
+            hasLousyBotMention: false,
+            content: '',
+            allComments: '',
+            issueNumber: null,
+            commentId: null,
+            fullContext: ''
+          };
+    
+    - name: Generate badge suggestion
+      if: steps.analyze.outputs.needsBadge == 'true'
+      id: generate-badge
+      uses: actions/github-script@v7
+      env:
+        LB_MODEL: ${{ secrets.LB_MODEL }}
+        LB_BASE_URL: ${{ secrets.LB_BASE_URL }}
+        LB_API_KEY: ${{ secrets.LB_API_KEY }}
+      with:
+        script: |
+          const { default: axios } = await import('axios');
+          
+          const issueNumber = parseInt(context.issue.number);
+          const issue = await github.rest.issues.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: issueNumber
+          });
+          
+          const content = issue.data.body || issue.data.title;
+          
+          // Prepare API request
+          const requestBody = {
+            model: process.env.LB_MODEL || 'claude',
+            messages: [
+              {
+                role: "system",
+                content: "You are a GitHub issue management expert. Analyze the issue content and all comments to suggest appropriate badges. Respond with a JSON object containing: {badge: string, color: string, description: string}. Badge should be short and descriptive (e.g., 'Priority: High', 'Status: In Progress', 'Type: Bug'). Color should be one of: blue, green, yellow, orange, red, purple. Description should explain the badge meaning. Consider the full context including all comments."
+              },
+              {
+                role: "user",
+                content: `Analyze this GitHub issue and all its comments to suggest a badge. Issue: ${content}. Comments: ${allComments || 'No additional comments'}`
+              }
+            ],
+            max_tokens: 500,
+            temperature: 0.3
+          };
+          
+          try {
+            const response = await axios.post(process.env.LB_BASE_URL, requestBody, {
+              headers: {
+                'Authorization': `Bearer ${process.env.LB_API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              timeout: 30000, // 30 second timeout
+              maxRedirects: 5
+            });
+            
+            const content = response.data.choices[0].message.content;
+            
+            // Try to parse JSON response, fallback to text parsing
+            let badgeData;
+            try {
+              badgeData = JSON.parse(content);
+            } catch {
+              // Enhanced parsing for different response formats
+              const contentLower = content.toLowerCase();
+              
+              // Extract badge information from various formats
+              let badge = 'Status: Needs Review';
+              let color = 'blue';
+              let description = 'Issue needs attention';
+              
+              // Check for markdown badge format
+              const markdownBadge = content.match(/!\[.*?\]\(.*?\)/i);
+              if (markdownBadge) {
+                badge = 'Badge: Custom';
+                description = 'Custom badge generated';
+              }
+              // Check for SVG badge format
+              else if (content.includes('<svg') && content.includes('badge')) {
+                badge = 'Badge: SVG';
+                description = 'SVG badge generated';
+              }
+              // Check for categorization format
+              else if (contentLower.includes('category') || contentLower.includes('severity')) {
+                const categoryMatch = content.match(/category[:\s]*([^,\n]+)/i);
+                const severityMatch = content.match(/severity[:\s]*([^,\n]+)/i);
+                
+                if (categoryMatch) badge = `Category: ${categoryMatch[1].trim()}`;
+                if (severityMatch) color = severityMatch[1].trim().toLowerCase();
+                description = 'AI-analyzed issue';
+              }
+              // Extract from structured text
+              else {
+                const badgeMatch = content.match(/badge[:\s]*["']([^"']+)["']/i);
+                const colorMatch = content.match(/color[:\s]*["']([^"']+)["']/i);
+                const descMatch = content.match(/description[:\s]*["']([^"']+)["']/i);
+                
+                if (badgeMatch) badge = badgeMatch[1];
+                if (colorMatch) color = colorMatch[1];
+                if (descMatch) description = descMatch[1];
+              }
+              
+              badgeData = { badge, color, description };
+            }
+            
+            return {
+              badge: badgeData.badge || 'Status: Needs Review',
+              color: badgeData.color || 'blue',
+              description: badgeData.description || 'Issue needs attention',
+              rawResponse: content
+            };
+            
+          } catch (error) {
+            console.log('API Error:', error.response?.data || error.message);
+            return {
+              badge: 'Status: Needs Review',
+              color: 'blue',
+              description: 'Issue needs attention',
+              rawResponse: 'API Error: ' + (error.response?.data?.error?.message || error.message)
+            };
+          }
+    
+    - name: Create or update issue comment with badge
+      if: steps.generate-badge.outputs.badge != ''
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issueNumber = context.issue.number;
+          const badge = '${{ steps.generate-badge.outputs.badge }}';
+          const color = '${{ steps.generate-badge.outputs.color }}';
+          const description = '${{ steps.generate-badge.outputs.description }}';
+          
+          // Create badge markdown
+          const badgeMarkdown = `🏷️ **${badge}**\n\n${description}\n\n<details>\n<summary>Badge Details</summary>\n\n- **Badge**: ${badge}\n- **Color**: ${color}\n- **Description**: ${description}\n- **Generated by**: @lousybot\n</details>`;
+          
+          try {
+            // Try to find existing comment from lousybot
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            const lousyBotComment = comments.data.find(comment => 
+              comment.user.login === 'github-actions[bot]' && 
+              comment.body.includes('🏷️')
+            );
+            
+            if (lousyBotComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: lousyBotComment.id,
+                body: badgeMarkdown
+              });
+              console.log('Updated existing badge comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: badgeMarkdown
+              });
+              console.log('Created new badge comment');
+            }
+          } catch (error) {
+            console.log('Error updating comment:', error);
+          }
+    
+    - name: Add label based on badge
+      if: steps.generate-badge.outputs.badge != ''
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issueNumber = context.issue.number;
+          const badge = '${{ steps.generate-badge.outputs.badge }}';
+          
+          // Extract label from badge (e.g., "Priority: High" -> "priority-high")
+          const label = badge.toLowerCase()
+            .replace(/[^a-z0-9\s]/g, '')
+            .replace(/\s+/g, '-');
+          
+          try {
+            // Add label to issue
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: [label]
+            });
+            console.log(`Added label: ${label}`);
+          } catch (error) {
+            console.log('Error adding label:', error);
+          }
