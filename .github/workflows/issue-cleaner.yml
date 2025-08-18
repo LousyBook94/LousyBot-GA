@@ -26,8 +26,6 @@ jobs:
     - name: Clean Comments
       env:
         GITHUB_TOKEN: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
-        LB_APP_ID: ${{ secrets.LB_APP_ID }}
-        LB_PRIVATE_KEY: ${{ secrets.LB_PRIVATE_KEY }}
       uses: actions/github-script@v7
       with:
         script: |
