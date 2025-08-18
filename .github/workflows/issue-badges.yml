@@ -55,10 +55,10 @@ jobs:
             }
             
             console.log('✅ Configuration loaded:');
-            console.log(`   Model: ${config.model}`);
-            console.log(`   Base URL: ${config.baseUrl}`);
-            console.log(`   API Key: ***${config.apiKey.slice(-4)}`);
-            console.log(`   GitHub App: ${(process.env.APP_ID || process.env.LB_APP_ID) && process.env.LB_PRIVATE_KEY ? 'YES' : 'NO'}`);
+            console.log('   Model: ' + config.model);
+            console.log('   Base URL: ' + config.baseUrl);
+            console.log('   API Key: ***' + config.apiKey.slice(-4));
+            console.log('   GitHub App: ' + ((process.env.APP_ID || process.env.LB_APP_ID) && process.env.LB_PRIVATE_KEY ? 'YES' : 'NO'));
             
             // Get issue context
             const isManualRequest = context.payload.comment?.body?.includes('@lousybot /badge') || false;
@@ -74,7 +74,7 @@ jobs:
             const issueBody = issue.body || '';
             const labels = issue.labels?.map(label => label.name) || [];
             
-            console.log(`🎯 Processing issue #${issueNumber}: ${issueTitle}`);
+            console.log('🎯 Processing issue #' + issueNumber + ': ' + issueTitle);
             if (isManualRequest) {
               console.log('🎯 Manual badge request detected');
             }
@@ -92,34 +92,17 @@ jobs:
               if (recentComments.length > 0) {
                 commentsContext = '\n\nRecent Comments:\n' +
                   recentComments.map(comment =>
-                    `${comment.user.login}: ${comment.body.substring(0, 100)}${comment.body.length > 100 ? '...' : ''}`
+                    comment.user.login + ': ' + comment.body.substring(0, 100) + (comment.body.length > 100 ? '...' : '')
                   ).join('\n');
               }
             } catch (error) {
-              console.log('⚠️ Could not fetch comments for context:', error.message);
+              console.log('⚠️ Could not fetch comments for context: ' + error.message);
             }
             
             // Create AI prompt for better badge generation
-            const systemPrompt = `You are a GitHub issue analyzer. Generate concise, relevant badges for issues.
+            const systemPrompt = 'You are a GitHub issue analyzer and label designer. Generate concise, relevant badges for issues AND create appropriate colored labels using icon format.\n\nRespond with ONLY a JSON object in this exact format:\n{\n  "badges": [\n    {"name": "Priority", "value": "🔥 Priority/High", "color": "red"},\n    {"name": "Type", "value": "🐛 Type/Bug", "color": "orange"},\n    {"name": "Status", "value": "🔍 Status/Needs Review", "color": "purple"}\n  ],\n  "labels": [\n    {"name": "🔥 Priority/High", "color": "#d73a49"},\n    {"name": "🐛 Type/Bug", "color": "#d73a49"},\n    {"name": "🔍 Status/Needs Review", "color": "#a371f7"},\n    {"name": "⚡ Complexity/Medium", "color": "#ffd33d"},\n    {"name": "🎯 Area/Frontend", "color": "#0366d6"}\n  ]\n}\n\nKeep badges short and use appropriate emojis. For labels:\n- Use icon format with emoji + value: "🔥 Priority/High" OR just emoji + value: "🚫 Wontfix"\n- Choose vibrant colors that match the label meaning\n- Include 2-5 relevant labels per issue\n- Focus on: priority, type, complexity, area, impact, status\n- Each label must start with an emoji, optionally followed by category/value';
             
-            Respond with ONLY a JSON object in this exact format:
-            {
-              "badges": [
-                {"name": "Priority", "value": "🔥 High", "color": "red"},
-                {"name": "Type", "value": "🐛 Bug", "color": "orange"}
-              ],
-              "labels": ["bug", "high-priority"]
-            }
-            
-            Keep badges short and use appropriate emojis. Focus on: priority, type, complexity, status.`;
-            
-            const userPrompt = `Issue: ${issueTitle}
-            
-            Description: ${issueBody}
-            
-            Current Labels: ${labels.join(', ') || 'None'}${commentsContext}
-            
-            Generate 2-4 relevant badges and suggest appropriate GitHub labels.`;
+            const userPrompt = 'Issue: ' + issueTitle + '\n\nDescription: ' + issueBody + '\n\nCurrent Labels: ' + (labels.join(', ') || 'None') + commentsContext + '\n\nGenerate 2-4 relevant badges and suggest appropriate GitHub labels.';
             
             // Make API request
             console.log('🤖 Calling AI API...');
@@ -128,13 +111,13 @@ jobs:
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.apiKey}`
+                'Authorization': 'Bearer ' + config.apiKey
               },
               body: JSON.stringify({
                 model: config.model,
                 messages: [
-                  { role: "system", content: systemPrompt },
-                  { role: "user", content: userPrompt }
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt }
                 ],
                 max_tokens: 400,
                 temperature: 0.7
@@ -142,7 +125,7 @@ jobs:
             });
             
             if (!response.ok) {
-              throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+              throw new Error('API request failed: ' + response.status + ' ' + response.statusText);
             }
             
             const data = await response.json();
@@ -157,6 +140,7 @@ jobs:
             // Parse AI response
             let badges = [];
             let suggestedLabels = [];
+            let aiLabels = [];
             
             try {
               // Try to extract JSON from response
@@ -166,15 +150,24 @@ jobs:
                 
                 if (parsedResponse.badges && Array.isArray(parsedResponse.badges)) {
                   badges = parsedResponse.badges.map(badge => 
-                    `**${badge.name}**: ${badge.value}`
+                    '**' + badge.name + '**: ' + badge.value
                   );
                 } else if (parsedResponse.badges && typeof parsedResponse.badges === 'object') {
                   badges = Object.entries(parsedResponse.badges).map(([key, value]) =>
-                    `**${key.charAt(0).toUpperCase() + key.slice(1)}**: ${value}`
+                    '**' + key.charAt(0).toUpperCase() + key.slice(1) + '**: ' + value
                   );
                 }
                 
                 suggestedLabels = parsedResponse.labels || [];
+                if (Array.isArray(suggestedLabels)) {
+                  aiLabels = suggestedLabels;
+                } else if (typeof suggestedLabels === 'object') {
+                  // Extract labels from object format
+                  aiLabels = Object.entries(suggestedLabels).map(([name, color]) => ({
+                    name,
+                    color: typeof color === 'string' ? color : '#000000'
+                  }));
+                }
               }
             } catch (parseError) {
               console.log('⚠️ Failed to parse JSON response, using fallback');
@@ -188,49 +181,203 @@ jobs:
             // Ensure we have at least some badges
             if (badges.length === 0) {
               badges = [
-                `**Type**: 📝 Issue`,
-                `**Status**: 🔍 Needs Review`
+                '**Type**: 📝 Type/Issue',
+                '**Status**: 🔍 Status/Needs Review'
               ];
             }
             
-            console.log(`🎯 Generated ${badges.length} badge(s)`);
-            console.log(`🏷️ Suggested ${suggestedLabels.length} label(s)`);
+            console.log('🎯 Generated ' + badges.length + ' badge(s)');
+            console.log('🏷️ Generated ' + aiLabels.length + ' AI-colored labels(s)');
             
-            // Apply suggested labels
-            if (suggestedLabels.length > 0) {
+            // AI label processing functions
+            const processAIColorLabels = async (aiLabels, issueNumber) => {
+              const labelsToCreate = [];
+              const labelsToApply = [];
+              
+              // Process each AI-generated label
+              for (const label of aiLabels) {
+                if (label.name && label.color) {
+                  // Validate and format color
+                  const formattedColor = label.color.startsWith('#') ? 
+                    label.color.substring(1) : label.color;
+                  
+                  // Ensure color is valid hex and label uses descriptive format
+                  if (/^[0-9A-Fa-f]{6}$/.test(formattedColor) && 
+                      label.name.length > 3) {
+                    labelsToCreate.push({
+                      name: label.name,
+                      color: formattedColor
+                    });
+                    labelsToApply.push(label.name);
+                  }
+                }
+              }
+              
+              // Create labels in repository
+              await createLabelsInRepo(labelsToCreate);
+              
+              // Apply labels to issue
+              if (labelsToApply.length > 0) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  labels: labelsToApply
+                });
+                console.log('🏷️ Applied ' + labelsToApply.length + ' AI-generated colored labels');
+              }
+            };
+            
+            const createLabelsInRepo = async (labels) => {
+              for (const label of labels) {
+                try {
+                  // Check if label exists
+                  const existingLabels = await github.rest.issues.listLabelsForRepo({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo
+                  });
+                  
+                  const labelExists = existingLabels.data.some(l => l.name === label.name);
+                  
+                  if (!labelExists) {
+                    // Create new label with AI-specified color
+                    await github.rest.issues.createLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      name: label.name,
+                      color: label.color
+                    });
+                    console.log('✅ Created AI label: ' + label.name + ' (color: #' + label.color + ')');
+                  }
+                } catch (error) {
+                  console.log('⚠️ Failed to create label ' + label.name + ': ' + error.message);
+                }
+              }
+            };
+            
+            const applyOriginalLabels = async (labels, issueNumber) => {
+              // Original label application logic
+              if (labels.length > 0) {
+                try {
+                  const existingLabels = labels;
+                  const newLabels = labels.filter(label => 
+                    !existingLabels.includes(label) && 
+                    typeof label === 'string' && 
+                    label.length > 0
+                  );
+                  
+                  if (newLabels.length > 0) {
+                    await github.rest.issues.addLabels({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issueNumber,
+                      labels: newLabels
+                    });
+                    console.log('✅ Applied ' + newLabels.length + ' new label(s): ' + newLabels.join(', '));
+                  }
+                } catch (labelError) {
+                  console.log('⚠️ Failed to apply labels: ' + labelError.message);
+                }
+              }
+            };
+            
+            // Apply AI-generated colored labels
+            if (aiLabels && aiLabels.length > 0) {
               try {
-                const existingLabels = labels;
-                const newLabels = suggestedLabels.filter(label => 
-                  !existingLabels.includes(label) && 
-                  typeof label === 'string' && 
-                  label.length > 0
-                );
+                await processAIColorLabels(aiLabels, issueNumber);
+                console.log('🏷️ Applied ' + aiLabels.length + ' AI-generated colored labels');
+              } catch (labelError) {
+                console.log('⚠️ Failed to apply AI labels: ' + labelError.message);
+                // Fallback to original label application
+                await applyOriginalLabels(suggestedLabels, issueNumber);
+              }
+            } else {
+              // Fallback to original label application
+              await applyOriginalLabels(suggestedLabels, issueNumber);
+            }
+            
+            // Apply icon format labels for visual consistency
+            if (badges && badges.length > 0) {
+              try {
+                const iconLabels = badges.map(badge => {
+                  // Extract icon from badge value (format: "🔥 Priority/High")
+                  const match = badge.match(/(\p{Emoji}\s*\p{Emoji}*)\s*\/.*/);
+                  if (match) {
+                    return match[1]; // Return just the icon part
+                  }
+                  return null;
+                }).filter(label => label !== null);
                 
-                if (newLabels.length > 0) {
+                if (iconLabels.length > 0) {
                   await github.rest.issues.addLabels({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     issue_number: issueNumber,
-                    labels: newLabels
+                    labels: iconLabels
                   });
-                  console.log(`✅ Applied ${newLabels.length} new label(s): ${newLabels.join(', ')}`);
+                  console.log('🏷️ Applied ' + iconLabels.length + ' icon labels');
                 }
-              } catch (labelError) {
-                console.log('⚠️ Failed to apply labels:', labelError.message);
+              } catch (iconLabelError) {
+                console.log('⚠️ Failed to apply icon labels: ' + iconLabelError.message);
               }
             }
             
-            // Format badges for display
+            // Get color for a badge
+            const getBadgeColor = (badgeName, badgeValue) => {
+              const normalizedValue = badgeValue.toLowerCase();
+              const normalizedName = badgeName.toLowerCase();
+              
+              // Check vibrant color palette
+              const colorMap = {
+                'high': 'red', 'urgent': 'red', 'critical': 'red', 'hot': 'red',
+                'medium': 'orange', 'normal': 'orange', 'standard': 'orange',
+                'low': 'yellow', 'minor': 'yellow', 'suggestion': 'yellow',
+                'bug': 'red', 'error': 'red', 'issue': 'red',
+                'feature': 'blue', 'new': 'blue', 'add': 'blue',
+                'enhancement': 'purple', 'improvement': 'purple', 'better': 'purple',
+                'documentation': 'gray', 'docs': 'gray', 'readme': 'gray',
+                'question': 'green', 'help': 'green', 'support': 'green',
+                'open': 'yellow', 'todo': 'yellow', 'pending': 'yellow',
+                'progress': 'blue', 'working': 'blue', 'development': 'blue',
+                'review': 'purple', 'check': 'purple', 'validate': 'purple',
+                'done': 'green', 'complete': 'green', 'finished': 'green',
+                'blocked': 'red', 'stuck': 'red', 'problem': 'red'
+              };
+              
+              // Find matching color based on name or value
+              for (const [keyword, color] of Object.entries(colorMap)) {
+                if (normalizedName.includes(keyword) || normalizedValue.includes(keyword)) {
+                  return color;
+                }
+              }
+              
+              // Default vibrant colors
+              const defaultColors = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'cyan'];
+              return defaultColors[Math.floor(Math.random() * defaultColors.length)];
+            };
+            
+            // Format badges for display with vibrant colors
             const formatBadges = (badgeList) => {
               if (!badgeList || badgeList.length === 0) {
-                return '**Status**: 📝 Issue Created';
+                return '<span style="color: yellow">**Status**</span>: 📝 Issue Created';
               }
-              return badgeList.map(badge => `${badge}`).join('\n');
+              
+              return badgeList.map(badge => {
+                // Extract badge name and value from the format "**Name**: Value"
+                const match = badge.match(/\*\*(.*?)\*\*: (.*)/);
+                if (match) {
+                  const name = match[1];
+                  const value = match[2];
+                  const color = getBadgeColor(name, value);
+                  return '<span style="color: ' + color + '">**' + name + '**</span>: ' + value;
+                }
+                return badge;
+              }).join('\n');
             };
             
             // Handle manual requests differently - don't create persistent comment
             if (isManualRequest) {
-              const manualBadgeContent = `🏅 **Generated Badges**\n\n${formatBadges(badges)}`;
+              const manualBadgeContent = '🏅 **Generated Badges**\n\n' + formatBadges(badges);
               
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -238,12 +385,12 @@ jobs:
                 issue_number: issueNumber,
                 body: manualBadgeContent
               });
-              console.log(`✅ Manual badge request completed`);
+              console.log('✅ Manual badge request completed');
               return;
             }
             
             // Create or update persistent badge comment
-            const commentContent = `## 🏷️ Issue Badges\n\n${formatBadges(badges)}\n\n---\n*Generated by LousyBot-GA*`;
+            const commentContent = '## 🏷️ Issue Badges\n\n' + formatBadges(badges) + '\n\n---\n*Generated by LousyBot-GA*';
             
             // Check for existing badge comment
             const comments = await github.rest.issues.listComments({
@@ -264,7 +411,7 @@ jobs:
                 comment_id: existingComment.id,
                 body: commentContent
               });
-              console.log(`✅ Updated existing badges comment`);
+              console.log('✅ Updated existing badges comment');
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -272,14 +419,14 @@ jobs:
                 issue_number: issueNumber,
                 body: commentContent
               });
-              console.log(`✅ Created new badges comment`);
+              console.log('✅ Created new badges comment');
             }
             
-            console.log(`🎉 Badge generation completed successfully!`);
+            console.log('🎉 Badge generation completed successfully!');
             
           } catch (error) {
-            console.error('❌ Error in badge generation:', error.message);
-            console.error('Stack trace:', error.stack);
+            console.error('❌ Error in badge generation: ' + error.message);
+            console.error('Stack trace: ' + error.stack);
             
             // Create error comment for debugging
             try {
@@ -289,10 +436,10 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: errorIssueNumber,
-                  body: `## ⚠️ Badge Generation Error\n\nFailed to generate badges: ${error.message}\n\n*Please check the workflow logs for more details.*`
+                  body: '## ⚠️ Badge Generation Error\n\nFailed to generate badges: ' + error.message + '\n\n*Please check the workflow logs for more details.*'
                 });
               }
             } catch (commentError) {
-              console.error('Failed to create error comment:', commentError.message);
+              console.error('Failed to create error comment: ' + commentError.message);
             }
           }
