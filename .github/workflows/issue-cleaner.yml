@@ -2,9 +2,7 @@ name: Issue Cleaner
 
 on:
   issue_comment:
-    types: [created, edited]
-  issues:
-    types: [edited]
+    types: [created]
 
 jobs:
   clean-comments:
@@ -17,171 +15,68 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Check for cleanup command
-      id: check-command
+    - name: Clean Comments
       uses: actions/github-script@v7
       with:
         script: |
+          const { context } = require('@actions/github');
+          
+          // Get the comment data
           const comment = context.payload.comment;
-          const issue = context.payload.issue;
+          const commentBody = comment.body;
+          const commentId = comment.id;
+          const issueNumber = comment.issue_number;
           
-          let content = '';
-          if (comment) {
-            content = comment.body;
-          } else if (issue) {
-            content = issue.body;
-          }
+          // Get configuration from secrets
+          const botName = process.env.GITHUB_ACTOR || 'lousybot';
+          const targetCommand = '@lousybot clear';
           
-          // Check if the content contains the cleanup command
-          const hasCleanupCommand = content.toLowerCase().includes('@lousybot /clear') || content.toLowerCase().includes('@lousybot clear');
-          
-          return {
-            hasCleanupCommand,
-            content: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
-            issueNumber: comment ? comment.issue_number : (issue ? issue.number : null),
-            commentId: comment ? comment.id : null,
-            isIssue: !comment
-          };
-    
-    - name: Get all comments
-      if: steps.check-command.outputs.hasCleanupCommand == 'true'
-      id: get-comments
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const issueNumber = context.issue.number;
-          
-          // Get all comments on the issue
-          const comments = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: issueNumber
-          });
-          
-          // Get issue body as well
-          const issue = await github.rest.issues.get({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: issueNumber
-          });
-          
-          return {
-            comments: comments.data,
-            issueBody: issue.data.body,
-            issueNumber: issueNumber
-          };
-    
-    - name: Filter and identify messages to delete
-      id: filter-messages
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const allData = context.issue;
-          const comments = allData.comments || [];
-          const issueBody = allData.issueBody || '';
-          
-          const messagesToDelete = [];
-          
-          // Check issue body for lousybot messages
-          if (issueBody && (issueBody.toLowerCase().includes('@lousybot') || issueBody.toLowerCase().includes('github-actions[bot]'))) {
-            messagesToDelete.push({
-              type: 'issue',
-              content: issueBody,
-              timestamp: 'issue-body'
+          // Check if comment contains the cleanup command
+          if (commentBody.includes(targetCommand)) {
+            console.log('Cleanup command detected, processing...');
+            
+            // Get all comments on the issue
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
             });
-          }
-          
-          // Check comments for lousybot messages
-          for (const comment of comments) {
-            const content = comment.body || '';
-            if (content.toLowerCase().includes('@lousybot') || 
-                content.toLowerCase().includes('github-actions[bot]') ||
-                content.toLowerCase().includes('lousybot')) {
-              messagesToDelete.push({
-                type: 'comment',
-                id: comment.id,
-                content: content,
-                timestamp: comment.created_at,
-                author: comment.user.login
-              });
-            }
-          }
-          
-          return {
-            messagesToDelete: messagesToDelete,
-            deleteCount: messagesToDelete.length,
-            issueNumber: context.issue.number
-          };
-    
-    - name: Delete identified messages
-      if: steps.filter-messages.outputs.deleteCount > 0
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const messagesToDelete = context.issue.messagesToDelete || [];
-          const issueNumber = context.issue.issueNumber;
-          let deletedCount = 0;
-          
-          for (const message of messagesToDelete) {
-            try {
-              if (message.type === 'comment' && message.id) {
-                // Delete comment
+            
+            let deletedCount = 0;
+            
+            // Filter and delete comments made by the bot or containing @lousybot
+            const commentsToDelete = comments.data.filter(c => {
+              const isBotComment = c.user.login === botName;
+              const hasBotMention = c.body.includes('@lousybot');
+              return isBotComment || hasBotMention;
+            });
+            
+            // Delete the comments
+            for (const commentToDelete of commentsToDelete) {
+              try {
                 await github.rest.issues.deleteComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  comment_id: message.id
+                  comment_id: commentToDelete.id
                 });
                 deletedCount++;
-                console.log(`Deleted comment ${message.id} by ${message.author}`);
-              } else if (message.type === 'issue') {
-                // Update issue body to remove lousybot content
-                const cleanBody = message.content
-                  .replace(/@lousybot\s*clear/gi, '')
-                  .replace(/github-actions\[bot\]/gi, '')
-                  .replace(/lousybot/gi, '')
-                  .replace(/\n{3,}/g, '\n\n') // Remove excessive newlines
-                  .trim();
-                
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  body: cleanBody || null // Set to null if empty after cleaning
-                });
-                deletedCount++;
-                console.log('Cleaned issue body');
+                console.log(`Deleted comment ${commentToDelete.id}`);
+              } catch (error) {
+                console.error(`Failed to delete comment ${commentToDelete.id}:`, error.message);
               }
-            } catch (error) {
-              console.log(`Error deleting message ${message.id}:`, error.message);
             }
-          }
-          
-          // Post cleanup summary comment
-          try {
-            const summaryComment = `🧹 **Cleanup Complete!**\n\nI removed ${deletedCount} message(s) containing @lousybot references and bot messages.\n\nCommand used: \`@lousybot /clear\`\n\n${deletedCount > 0 ? '✅ Cleaned successfully!' : 'ℹ️  No messages needed cleaning.'}`;
+            
+            // Create a confirmation comment
+            const confirmationComment = `🧹 Cleanup completed! Deleted ${deletedCount} comment(s).`;
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: summaryComment
+              body: confirmationComment
             });
-          } catch (error) {
-            console.log('Error posting summary comment:', error.message);
+            
+            console.log(`Cleanup completed. Deleted ${deletedCount} comments.`);
+          } else {
+            console.log('No cleanup command found in comment.');
           }
-          
-          return {
-            deletedCount: deletedCount,
-            issueNumber: issueNumber
-          };
-    
-    - name: Post cleanup confirmation
-      if: steps.filter-messages.outputs.deleteCount > 0
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const issueNumber = context.issue.issueNumber;
-          const deletedCount = context.issue.deletedCount || 0;
-          
-          // This step is redundant but ensures the summary comment is posted
-          console.log(`Cleanup summary: ${deletedCount} messages deleted from issue #${issueNumber}`);
