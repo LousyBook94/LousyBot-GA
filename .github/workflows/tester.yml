@@ -45,7 +45,7 @@ jobs:
       run: |
         if [ "${{ steps.generate_token.outputs.token }}" != "" ]; then
           echo "✅ GitHub App token generated successfully"
-          echo "Token length: ${#steps.generate_token.outputs.token}"
+          echo "Token length: $(echo -n "${{ steps.generate_token.outputs.token }}" | wc -c)"
         else
           echo "❌ ERROR: GitHub App token generation failed"
           echo "Please check APP_ID and LB_PRIVATE_KEY configuration"
