@@ -19,10 +19,10 @@ jobs:
       uses: actions/github-script@v7
       with:
         script: |
-          const { context } = require('@actions/github');
+          const github = require('@actions/github');
           
           // Get the comment data
-          const comment = context.payload.comment;
+          const comment = github.context.payload.comment;
           const commentBody = comment.body;
           const commentId = comment.id;
           const issueNumber = comment.issue_number;
@@ -37,8 +37,8 @@ jobs:
             
             // Get all comments on the issue
             const comments = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner: github.context.repo.owner,
+              repo: github.context.repo.repo,
               issue_number: issueNumber
             });
             
@@ -55,8 +55,8 @@ jobs:
             for (const commentToDelete of commentsToDelete) {
               try {
                 await github.rest.issues.deleteComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
+                  owner: github.context.repo.owner,
+                  repo: github.context.repo.repo,
                   comment_id: commentToDelete.id
                 });
                 deletedCount++;
@@ -70,8 +70,8 @@ jobs:
             const confirmationComment = `🧹 Cleanup completed! Deleted ${deletedCount} comment(s).`;
             
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner: github.context.repo.owner,
+              repo: github.context.repo.repo,
               issue_number: issueNumber,
               body: confirmationComment
             });
