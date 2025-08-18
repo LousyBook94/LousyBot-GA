@@ -15,11 +15,20 @@ jobs:
       contents: read
     
     steps:
+    - name: Generate GitHub App Token
+      id: generate_token
+      if: vars.APP_ID
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ vars.APP_ID }}
+        private-key: ${{ secrets.APP_PRIVATE_KEY }}
+    
     - name: Checkout repository
       uses: actions/checkout@v4
       
     - name: Generate Issue Badges
       env:
+        GITHUB_TOKEN: ${{ steps.generate_token.outputs.token || secrets.GITHUB_TOKEN }}
         LB_MODEL: ${{ secrets.LB_MODEL }}
         LB_BASE_URL: ${{ secrets.LB_BASE_URL }}
         LB_API_KEY: ${{ secrets.LB_API_KEY }}
@@ -159,7 +168,7 @@ jobs:
           if (isManualRequest) {
             const manualBadgeContent = badges.length > 1
               ? `🏅 Generated Badges (${badges.length} total):\n\n${badges.join('\n')}`
-              : `🏅 Generated Badge:\n\n${badgeText}`;
+              : `🏅 Generated Badge:\n\n${badges.join('\n')}`;
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
