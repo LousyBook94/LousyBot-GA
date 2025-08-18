@@ -128,10 +128,13 @@ jobs:
           const data = await response.json();
           let responseText = data.choices[0].message.content.trim();
           
+          // Initialize badges array
+          let badges = [];
+          
           try {
             // Try to parse JSON response (new format)
             const parsedResponse = JSON.parse(responseText);
-            const badges = parsedResponse.badges ? parsedResponse.badges.split('\n').filter(badge => badge.trim().length > 0) : [];
+            badges = parsedResponse.badges ? parsedResponse.badges.split('\n').filter(badge => badge.trim().length > 0) : [];
             const suggestedLabels = parsedResponse.labels || [];
             
             console.log(`🎯 Found ${badges.length} badge(s) to generate`);
@@ -157,7 +160,7 @@ jobs:
             }
           } catch (parseError) {
             // Fallback to old format (plain text badges)
-            const badges = responseText.split('\n').filter(badge => badge.trim().length > 0);
+            badges = responseText.split('\n').filter(badge => badge.trim().length > 0);
             console.log(`🎯 Found ${badges.length} badge(s) to generate (fallback format)`);
           }
           
