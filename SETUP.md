@@ -9,7 +9,7 @@ LousyBot is an AI-powered GitHub assistant that can automatically assign badges 
 These secrets are required for both workflows:
 
 - `LB_BASE_URL`: The base URL for the AI API (default: https://text.pollinations.ai/openai/chat/completions)
-- `LB_MODEL`: The AI model to use (default: gpt-5-nano)
+- `LB_MODEL`: The AI model to use (default: claude)
 - `LB_API_KEY`: API key for the AI service
 
 ### 2. GitHub App Configuration (Recommended)
@@ -67,9 +67,11 @@ This will create:
 
 ### 3. Get Installation ID
 1. Go back to your GitHub App settings
-2. Note the App ID
+2. Note the App ID (found in the main settings page)
 3. In the left sidebar, click "Installations"
-4. Find your installation and note the Installation ID
+4. Click on the installation for the repository where you want to install LousyBot
+5. Look at the URL - it will show `/installations/<INSTALLATION_ID>` where `<INSTALLATION_ID>` is the number you need
+6. Alternatively, the Installation ID is displayed on the installation details page
 
 ### 4. Configure Secrets
 Add the following secrets to your repository:
@@ -77,7 +79,7 @@ Add the following secrets to your repository:
 ```bash
 # API Configuration
 echo "LB_BASE_URL=https://text.pollinations.ai/openai/chat/completions" | gh secret set LB_BASE_URL
-echo "LB_MODEL=gpt-5-nano" | gh secret set LB_MODEL
+echo "LB_MODEL=claude" | gh secret set LB_MODEL
 echo "LB_API_KEY=your_api_key_here" | gh secret set LB_API_KEY
 
 # GitHub App Configuration (if using)

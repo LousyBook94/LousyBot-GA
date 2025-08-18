@@ -1,0 +1,11 @@
+{
+  "model": "claude",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hi"
+    }
+  ],
+  "max_tokens": 10,
+  "temperature": 0.7
+}

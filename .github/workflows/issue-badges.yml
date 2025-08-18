@@ -101,7 +101,7 @@ jobs:
               const parsedResponse = JSON.parse(apiResponse);
               const reason = parsedResponse.reason || 'Auto-assigned based on content analysis';
               
-              let commentMessage = `🏷️ **Auto-badge Assignment**\n\nI have applied badges: ${badgesToAdd.map(badge => `\`${badge}\``).join(', ')} because ${reason}\n\nThis assignment was made using AI analysis with the gpt-5-nano model via Pollinations API.`;
+              let commentMessage = `🏷️ **Auto-badge Assignment**\n\nI have applied badges: ${badgesToAdd.map(badge => `\`${badge}\``).join(', ')} because ${reason}\n\nThis assignment was made using AI analysis with the claude model via Pollinations API.`;
               
               // Add special message for negative badges
               const negativeBadges = ['wontfix', 'duplicate', 'invalid'];
