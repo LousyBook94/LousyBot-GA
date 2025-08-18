@@ -30,11 +30,11 @@ jobs:
           }
           
           // Get configuration from secrets
-          const botName = process.env.GITHUB_ACTOR || 'lousybot';
+          const botName = context.actor || 'lousybot';
           const targetCommand = '@lousybot /clear';
           
           // Check if GitHub App credentials are available
-          const hasGitHubApp = process.env.LB_APP_ID && process.env.LB_PRIVATE_KEY;
+          const hasGitHubApp = secrets.LB_APP_ID && secrets.LB_PRIVATE_KEY;
           console.log(`GitHub App credentials available: ${hasGitHubApp}`);
           
           // Check if comment contains the cleanup command
