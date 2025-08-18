@@ -26,12 +26,97 @@ jobs:
           echo "user=${{ github.event.comment.user.login || github.event.issue.user.login }}" >> $GITHUB_OUTPUT
           echo "issue_number=${{ github.event.issue.number || github.event.issue.number }}" >> $GITHUB_OUTPUT
           echo "comment_body='${{ github.event.comment.body || github.event.issue.body }}'" >> $GITHUB_OUTPUT
+          
+          # Check if this is a /clear command
+          if [[ "${{ github.event.comment.body || github.event.issue.body }}" == *"@lousybot /clear"* ]]; then
+            echo "clear_command=true" >> $GITHUB_OUTPUT
+          else
+            echo "clear_command=false" >> $GITHUB_OUTPUT
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
+      - name: Clear Bot Comments
+        if: steps.check-mention.outputs.mention == 'true' && steps.check-mention.outputs.clear_command == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.issue.number;
+            const user = '${{ steps.check-mention.outputs.user }}';
+            
+            console.log(`Processing /clear command from user: ${user}`);
+            
+            // Get all comments on this issue
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            let deletedCount = 0;
+            const commentsToDelete = [];
+            
+            // Find comments to delete:
+            // 1. Comments from github-actions bot (LousyBot responses)
+            // 2. Comments that contain "@lousybot" in the body
+            for (const comment of comments.data) {
+              const shouldDelete = 
+                // Bot responses (from github-actions)
+                comment.user.login === 'github-actions[bot]' ||
+                // Comments containing @lousybot mentions
+                (comment.body && comment.body.toLowerCase().includes('@lousybot'));
+              
+              if (shouldDelete) {
+                commentsToDelete.push(comment);
+              }
+            }
+            
+            console.log(`Found ${commentsToDelete.length} comments to delete`);
+            
+            // Delete the comments
+            for (const comment of commentsToDelete) {
+              try {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id
+                });
+                console.log(`Deleted comment ${comment.id} from ${comment.user.login}`);
+                deletedCount++;
+              } catch (error) {
+                console.error(`Failed to delete comment ${comment.id}: ${error.message}`);
+                
+                // If we can't delete a comment, try to edit it to show it was cleared
+                try {
+                  await github.rest.issues.updateComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: comment.id,
+                    body: `~~This comment was cleared by @${user} using \`@lousybot /clear\`~~`
+                  });
+                  console.log(`Marked comment ${comment.id} as cleared since deletion failed`);
+                } catch (editError) {
+                  console.error(`Failed to edit comment ${comment.id}: ${editError.message}`);
+                }
+              }
+            }
+            
+            // Post confirmation message
+            const confirmationMessage = deletedCount > 0 
+              ? `🧹 **Cleared!**\n\n@${user} successfully cleared ${deletedCount} bot comment${deletedCount !== 1 ? 's' : ''} and @lousybot mention${deletedCount !== 1 ? 's' : ''} from this issue.`
+              : `🧹 **No Comments to Clear**\n\n@${user}, there were no bot responses or @lousybot mentions to clear from this issue.`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: confirmationMessage
+            });
+            
+            console.log(`Clear command completed. Deleted ${deletedCount} comments.`);
       
       - name: Add Processing Comment
-        if: steps.check-mention.outputs.mention == 'true'
+        if: steps.check-mention.outputs.mention == 'true' && steps.check-mention.outputs.clear_command == 'false'
         uses: actions/github-script@v7
         with:
           script: |
@@ -44,7 +129,7 @@ jobs:
             });
       
       - name: Process Request (Multi-Step)
-        if: steps.check-mention.outputs.mention == 'true'
+        if: steps.check-mention.outputs.mention == 'true' && steps.check-mention.outputs.clear_command == 'false'
         uses: actions/github-script@v7
         env:
           LB_BASE_URL: ${{ secrets.LB_BASE_URL }}

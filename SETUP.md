@@ -115,6 +115,7 @@ echo "LB_GITHUB_TOKEN=your_personal_access_token" | gh secret set LB_GITHUB_TOKE
   - `suggest_fix <description>` - Suggest fixes
 - Shows "Processing..." indicator while working
 - Maintains conversation context across multiple steps
+- **Clear Command**: Use `@lousybot /clear` to remove all bot responses and @lousybot mentions from an issue
 
 ## Testing
 
