@@ -33,7 +33,6 @@ jobs:
           }
           
           // Get the issue data
-          const { context } = require('@actions/github');
           const issue = context.payload.issue;
           const issueNumber = issue.number;
           const issueTitle = issue.title;
