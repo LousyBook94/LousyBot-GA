@@ -1,0 +1,196 @@
+name: GitHub App Authentication Tester
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of test to run'
+        required: true
+        default: 'github-script'
+        type: choice
+        options:
+        - github-script
+        - rest-api
+        - github-cli
+        - all
+      test_action:
+        description: 'Action to test (comment, label, etc.)'
+        required: true
+        default: 'comment'
+        type: choice
+        options:
+        - comment
+        - label
+        - issue
+
+jobs:
+  test-github-app-auth:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
+    
+    steps:
+    - name: Generate GitHub App Token
+      id: generate_token
+      if: vars.APP_ID
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ vars.APP_ID }}
+        private-key: ${{ secrets.LB_PRIVATE_KEY }}
+    
+    - name: Validate GitHub App Token
+      if: always()
+      run: |
+        if [ "${{ steps.generate_token.outputs.token }}" != "" ]; then
+          echo "✅ GitHub App token generated successfully"
+          echo "Token length: ${#steps.generate_token.outputs.token}"
+        else
+          echo "❌ ERROR: GitHub App token generation failed"
+          echo "Please check APP_ID and LB_PRIVATE_KEY configuration"
+          exit 1
+        fi
+
+    - name: Test GitHub Script Authentication
+      if: ${{ github.event.inputs.test_type == 'github-script' || github.event.inputs.test_type == 'all' }}
+      env:
+        GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+      uses: actions/github-script@v7
+      with:
+        script: |
+          try {
+            console.log('🧪 Testing GitHub Script with GitHub App Token...');
+            
+            // Test 1: Get current user
+            const user = await github.rest.users.getAuthenticated();
+            console.log('👤 Authenticated as:', user.data.login);
+            console.log('📧 Email:', user.data.email);
+            console.log('🏢 Name:', user.data.name);
+            
+            // Test 2: Create a test comment
+            const testComment = '🧪 **GitHub Script Test** - This comment was created using GitHub Script with GitHub App Token on ' + new Date().toISOString();
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.inputs.test_action == 'issue' && '1' || 'github.event.issue.number || 1' }},
+              body: testComment
+            });
+            
+            console.log('✅ Comment created successfully by GitHub Script');
+            
+            // Test 3: Get repository info
+            const repo = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            console.log('📁 Repository:', repo.data.full_name);
+            console.log('🔗 Default branch:', repo.data.default_branch);
+            
+          } catch (error) {
+            console.error('❌ GitHub Script test failed:', error.message);
+            throw error;
+          }
+
+    - name: Test REST API Authentication
+      if: ${{ github.event.inputs.test_type == 'rest-api' || github.event.inputs.test_type == 'all' }}
+      env:
+        GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+      run: |
+        echo "🧪 Testing REST API with GitHub App Token..."
+        
+        # Test 1: Get authenticated user
+        echo "👤 Getting authenticated user..."
+        user_response=$(curl -s \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/user)
+        
+        echo "User response: $user_response"
+        
+        user_login=$(echo "$user_response" | jq -r '.login')
+        user_name=$(echo "$user_response" | jq -r '.name')
+        user_email=$(echo "$user_response" | jq -r '.email')
+        
+        echo "👤 Authenticated as: $user_login"
+        echo "📧 Email: $user_email"
+        echo "🏢 Name: $user_name"
+        
+        # Test 2: Create a test comment using REST API
+        echo "💬 Creating test comment..."
+        
+        if [ "${{ github.event.inputs.test_action }}" == "issue" ]; then
+          issue_number=1
+        else
+          issue_number="1"
+        fi
+        
+        comment_data='{
+          "body": "🧪 **REST API Test** - This comment was created using REST API with GitHub App Token on '$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+        }'
+        
+        comment_response=$(curl -s \
+          -X POST \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Content-Type: application/json" \
+          -d "$comment_data" \
+          https://api.github.com/repos/${{ github.repository }}/issues/$issue_number/comments)
+        
+        echo "Comment response: $comment_response"
+        
+        if echo "$comment_response" | jq -e '.id' > /dev/null 2>&1; then
+          comment_id=$(echo "$comment_response" | jq -r '.id')
+          echo "✅ Comment created successfully with ID: $comment_id"
+        else
+          echo "❌ Failed to create comment"
+          echo "Response: $comment_response"
+        fi
+
+    - name: Test GitHub CLI Authentication
+      if: ${{ github.event.inputs.test_type == 'github-cli' || github.event.inputs.test_type == 'all' }}
+      env:
+        GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+      run: |
+        echo "🧪 Testing GitHub CLI with GitHub App Token..."
+        
+        # Configure git
+        git config --global user.name "GitHub App Tester"
+        git config --global user.email "action@github.com"
+        
+        # Test 1: Get authenticated user
+        echo "👤 Getting authenticated user..."
+        gh auth status
+        gh api user --jq '{login: .login, name: .name, email: .email}'
+        
+        # Test 2: Create a test comment using GitHub CLI
+        echo "💬 Creating test comment..."
+        
+        if [ "${{ github.event.inputs.test_action }}" == "issue" ]; then
+          issue_number=1
+        else
+          issue_number="1"
+        fi
+        
+        test_comment="🧪 **GitHub CLI Test** - This comment was created using GitHub CLI with GitHub App Token on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        
+        if gh issue comment $issue_number --body "$test_comment"; then
+          echo "✅ Comment created successfully by GitHub CLI"
+        else
+          echo "❌ Failed to create comment with GitHub CLI"
+        fi
+
+    - name: Summary
+      if: always()
+      run: |
+        echo "🎯 GitHub App Authentication Test Summary"
+        echo "=========================================="
+        echo "Test Type: ${{ github.event.inputs.test_type }}"
+        echo "Test Action: ${{ github.event.inputs.test_action }}"
+        echo "Repository: ${{ github.repository }}"
+        echo "GitHub App ID: ${{ vars.APP_ID }}"
+        echo "Token Generated: ${{ steps.generate_token.outputs.token != '' && '✅' || '❌' }}"
+        echo ""
+        echo "📋 Check the individual test steps above for detailed results"
+        echo "🔍 The comments created by each method will show which authentication method was used"
