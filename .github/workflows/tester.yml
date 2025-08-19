@@ -182,6 +182,11 @@ jobs:
         git config --global user.name "GitHub App Tester"
         git config --global user.email "action@github.com"
         
+        # Initialize git repository
+        git init
+        git remote add origin https://github.com/${{ github.repository }}.git
+        git fetch origin
+        
         # Test 1: Check authentication status
         echo "🔐 Checking authentication status..."
         gh auth status
