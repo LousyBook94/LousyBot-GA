@@ -188,7 +188,7 @@ jobs:
         
         # Test 2: Get repository info
         echo "📁 Getting repository info..."
-        gh repo view --json nameWithOwner,defaultBranch --jq '{name: .nameWithOwner, branch: .defaultBranch}'
+        gh repo view --json nameWithOwner,defaultBranchRef --jq '{name: .nameWithOwner, branch: .defaultBranchRef.name}'
         
         # Test 3: Create a test comment using GitHub CLI
         echo "💬 Creating test comment..."
