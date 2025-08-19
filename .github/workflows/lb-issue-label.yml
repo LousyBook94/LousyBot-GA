@@ -1,0 +1,277 @@
+name: Issue Labels
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  assign-labels:
+    runs-on: ubuntu-latest
+    # Only run the job when it's an issue event or a comment with '/badge'
+    if: github.event_name == 'issues' || contains(github.event.comment.body, '/badge')
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
+    
+    steps:
+    - name: Generate GitHub App Token
+      id: generate_token
+      if: vars.APP_ID
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ vars.APP_ID }}
+        private-key: ${{ secrets.LB_PRIVATE_KEY }}
+    
+    - name: Generate Issue Labels
+      env:
+        GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+        LB_MODEL: ${{ secrets.LB_MODEL }}
+        LB_BASE_URL: ${{ secrets.LB_BASE_URL }}
+        LB_API_KEY: ${{ secrets.LB_API_KEY }}
+      run: |
+        echo "🧠 Generating AI-powered issue labels..."
+        
+        # Configuration
+        MODEL="${LB_MODEL:-claude}"
+        BASE_URL="${LB_BASE_URL:-https://text.pollinations.ai/openai/chat/completions}"
+        API_KEY="$LB_API_KEY"
+        
+        # Validate required configuration
+        if [ -z "$API_KEY" ]; then
+          echo "❌ ERROR: LB_API_KEY secret is required but not found!"
+          echo "   Please check your repository secrets in Settings > Secrets and variables > Actions"
+          exit 1
+        fi
+        
+        echo "✅ Configuration loaded:"
+        echo "   Model: $MODEL"
+        echo "   Base URL: $BASE_URL"
+        echo "   API Key: ***${API_KEY: -4}"
+        echo "   GitHub App: ${{ vars.APP_ID && 'YES' || 'NO' }}"
+        
+        # Get issue context
+        if [ "${{ github.event_name }}" = "issue_comment" ]; then
+          IS_MANUAL_REQUEST=$(echo "${{ github.event.comment.body }}" | grep -q "@lousybot /badge" && echo "true" || echo "false")
+          ISSUE_NUMBER="${{ github.event.comment.issue.number }}"
+          ISSUE_TITLE="${{ github.event.comment.issue.title }}"
+          ISSUE_BODY="${{ github.event.comment.issue.body }}"
+          LABELS=$(echo "${{ github.event.comment.issue.labels }}" | jq -r '.[].name' | tr '\n' ',' | sed 's/,$//')
+        else
+          IS_MANUAL_REQUEST="false"
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          ISSUE_BODY="${{ github.event.issue.body }}"
+          LABELS=$(echo "${{ github.event.issue.labels }}" | jq -r '.[].name' | tr '\n' ',' | sed 's/,$//')
+        fi
+        
+        echo "🎯 Processing issue #$ISSUE_NUMBER: $ISSUE_TITLE"
+        if [ "$IS_MANUAL_REQUEST" = "true" ]; then
+          echo "🎯 Manual label request detected"
+        fi
+        
+        # Get recent comments for context
+        COMMENTS_CONTEXT=""
+        COMMENTS_RESPONSE=$(curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+          "${{ github.api_url }}/repos/${{ github.repository }}/issues/$ISSUE_NUMBER/comments")
+        
+        if echo "$COMMENTS_RESPONSE" | jq -e '.[]' > /dev/null 2>&1; then
+          RECENT_COMMENTS=$(echo "$COMMENTS_RESPONSE" | jq -r '.[-3:][] | "\(.login): \(.body[0:100])\(.body[100:] | length | if . > 0 then "..." else "" end)"' | tr '\n' ' ')
+          if [ -n "$RECENT_COMMENTS" ]; then
+            COMMENTS_CONTEXT="\n\nRecent Comments: $RECENT_COMMENTS"
+          fi
+        fi
+        
+        # Create AI prompt
+        SYSTEM_PROMPT='You are a GitHub issue analyzer and label designer. Generate concise, relevant badges for issues AND create appropriate colored labels using icon format.\n\nRespond with ONLY a JSON object in this exact format:\n{\n  "badges": [\n    {"name": "Priority", "value": "🔥 Priority/High", "color": "red"},\n    {"name": "Type", "value": "🐛 Type/Bug", "color": "orange"},\n    {"name": "Status", "value": "🔍 Status/Needs Review", "color": "purple"}\n  ],\n  "labels": [\n    {"name": "🔥 Priority/High", "color": "#d73a49"},\n    {"name": "🐛 Type/Bug", "color": "#d73a49"},\n    {"name": "🔍 Status/Needs Review", "color": "#a371f7"},\n    {"name": "⚡ Complexity/Medium", "color": "#ffd33d"},\n    {"name": "🎯 Area/Frontend", "color": "#0366d6"}\n  ]\n}\n\nKeep badges short and use appropriate emojis. For labels:\n- Use icon format with emoji + value: "🔥 Priority/High" OR just emoji + value: "🚫 Wontfix"\n- Choose vibrant colors that match the label meaning\n- Include 2-5 relevant labels per issue\n- Focus on: priority, type, complexity, area, impact, status\n- Each label must start with an emoji, optionally followed by category/value'
+        
+        USER_PROMPT="Issue: $ISSUE_TITLE\n\nDescription: $ISSUE_BODY\n\nCurrent Labels: ${LABELS:-None}$COMMENTS_CONTEXT\n\nGenerate 2-4 relevant badges and suggest appropriate GitHub labels."
+        
+        # Make API request
+        echo "🤖 Calling AI API..."
+        AI_RESPONSE=$(curl -s -X POST "$BASE_URL" \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer $API_KEY" \
+          -d "{
+            \"model\": \"$MODEL\",
+            \"messages\": [
+              {\"role\": \"system\", \"content\": \"$SYSTEM_PROMPT\"},
+              {\"role\": \"user\", \"content\": \"$USER_PROMPT\"}
+            ],
+            \"max_tokens\": 400,
+            \"temperature\": 0.7
+          }")
+        
+        if echo "$AI_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+          echo "❌ API request failed: $(echo "$AI_RESPONSE" | jq -r '.error')"
+          exit 1
+        fi
+        
+        RESPONSE_TEXT=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // empty')
+        
+        if [ -z "$RESPONSE_TEXT" ]; then
+          echo "❌ Empty response from AI API"
+          exit 1
+        fi
+        
+        echo "📝 AI Response received"
+        
+        # Parse AI response
+        BADGES=()
+        AI_LABELS=()
+        
+        # Extract JSON from response
+        JSON_MATCH=$(echo "$RESPONSE_TEXT" | grep -o '{[^}]*}' | head -1)
+        if [ -n "$JSON_MATCH" ]; then
+          # Try to parse badges
+          BADGES_JSON=$(echo "$JSON_MATCH" | jq -r '.badges // empty' 2>/dev/null)
+          if [ -n "$BADGES_JSON" ]; then
+            while IFS= read -r badge; do
+              if [ -n "$badge" ]; then
+                NAME=$(echo "$badge" | jq -r '.name // empty' 2>/dev/null)
+                VALUE=$(echo "$badge" | jq -r '.value // empty' 2>/dev/null)
+                if [ -n "$NAME" ] && [ -n "$VALUE" ]; then
+                  BADGES+=("**$NAME**: $VALUE")
+                fi
+              fi
+            done <<< "$(echo "$BADGES_JSON" | jq -r '.[]' 2>/dev/null)"
+          fi
+          
+          # Try to parse labels
+          AI_LABELS_JSON=$(echo "$JSON_MATCH" | jq -r '.labels // empty' 2>/dev/null)
+          if [ -n "$AI_LABELS_JSON" ]; then
+            while IFS= read -r label; do
+              if [ -n "$label" ]; then
+                NAME=$(echo "$label" | jq -r '.name // empty' 2>/dev/null)
+                COLOR=$(echo "$label" | jq -r '.color // empty' 2>/dev/null)
+                if [ -n "$NAME" ] && [ -n "$COLOR" ]; then
+                  AI_LABELS+=("$NAME|$COLOR")
+                fi
+              fi
+            done <<< "$(echo "$AI_LABELS_JSON" | jq -r '.[]' 2>/dev/null)"
+          fi
+        fi
+        
+        # Ensure we have at least some badges
+        if [ ${#BADGES[@]} -eq 0 ]; then
+          BADGES=("**Type**: 📝 Type/Issue" "**Status**: 🔍 Status/Needs Review")
+        fi
+        
+        echo "🎯 Generated ${#BADGES[@]} badge(s)"
+        echo "🏷️ Generated ${#AI_LABELS[@]} AI-colored label(s)"
+        
+        # Process AI labels
+        process_ai_labels() {
+          local issue_num="$1"
+          local -n ai_labels_ref=$2
+          
+          for label_info in "${ai_labels_ref[@]}"; do
+            IFS='|' read -r name color <<< "$label_info"
+            
+            if [ -n "$name" ] && [ -n "$color" ]; then
+              # Validate color format
+              if [[ "$color" =~ ^[0-9A-Fa-f]{6}$ ]]; then
+                # Check if label exists
+                LABELS_RESPONSE=$(curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+                  "${{ github.api_url }}/repos/${{ github.repository }}/labels?per_page=100")
+                
+                LABEL_EXISTS=$(echo "$LABELS_RESPONSE" | jq -r --arg name "$name" '.[].name | select(. == $name)' | head -1)
+                
+                if [ -z "$LABEL_EXISTS" ]; then
+                  # Create new label
+                  curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"name\":\"$name\",\"color\":\"$color\"}" \
+                    "${{ github.api_url }}/repos/${{ github.repository }}/labels"
+                  echo "✅ Created AI label: $name (color: #$color)"
+                fi
+                
+                # Apply label to issue
+                curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"labels\":[\"$name\"]}" \
+                  "${{ github.api_url }}/repos/${{ github.repository }}/issues/$issue_num"
+                echo "🏷️ Applied label: $name"
+              fi
+            fi
+          done
+        }
+        
+        # Apply AI-generated labels
+        if [ ${#AI_LABELS[@]} -gt 0 ]; then
+          process_ai_labels "$ISSUE_NUMBER" AI_LABELS
+        fi
+        
+        # Extract and apply icon labels
+        ICON_LABELS=()
+        for badge in "${BADGES[@]}"; do
+          # Extract icon from badge value (format: "🔥 Priority/High")
+          if [[ $badge =~ (\p{Emoji}\s*\p{Emoji}*)\s*\/.* ]]; then
+            ICON_LABELS+=("${BASH_REMATCH[1]}")
+          fi
+        done
+        
+        if [ ${#ICON_LABELS[@]} -gt 0 ]; then
+          # Convert array to JSON for API call
+          ICON_LABELS_JSON=$(printf '"%s",' "${ICON_LABELS[@]}" | sed 's/,$//')
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            -d "{\"\":[$ICON_LABELS_JSON]}" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/issues/$ISSUE_NUMBER/labels"
+          echo "🏷️ Applied ${#ICON_LABELS[@]} icon labels"
+        fi
+        
+        # Handle manual requests differently - don't create persistent comment
+        if [ "$IS_MANUAL_REQUEST" = "true" ]; then
+          MANUAL_CONTENT="🏅 **Generated Labels**\n\n$(printf '%s\n' "${BADGES[@]}")"
+          
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"$MANUAL_CONTENT\"}" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/issues/$ISSUE_NUMBER/comments"
+          echo "✅ Manual label request completed"
+          exit 0
+        fi
+        
+        # Create or update persistent label comment
+        COMMENT_CONTENT="## 🏷️ Issue Labels\n\n$(printf '%s\n' "${BADGES[@]}")\n\n---\n*Generated by LousyBot-GA*"
+        
+        # Check for existing label comment
+        COMMENTS_RESPONSE=$(curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+          "${{ github.api_url }}/repos/${{ github.repository }}/issues/$ISSUE_NUMBER/comments")
+        
+        EXISTING_COMMENT=$(echo "$COMMENTS_RESPONSE" | jq -r '.[] | select(.body | contains("🏷️ Issue Labels") and contains("Generated by LousyBot-GA")) | .id' | head -1)
+        
+        if [ -n "$EXISTING_COMMENT" ]; then
+          # Update existing comment
+          curl -s -X PATCH -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"$COMMENT_CONTENT\"}" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/issues/comments/$EXISTING_COMMENT"
+          echo "✅ Updated existing labels comment"
+        else
+          # Create new comment
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"$COMMENT_CONTENT\"}" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/issues/$ISSUE_NUMBER/comments"
+          echo "✅ Created new labels comment"
+        fi
+        
+        echo "🎉 Label generation completed successfully!"
+        
+        # Error handling
+        catch() {
+          echo "❌ Error in label generation: $1"
+          
+          # Create error comment
+          ERROR_CONTENT="## ⚠️ Label Generation Error\n\nFailed to generate labels: $1\n\n*Please check the workflow logs for more details.*"
+          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"$ERROR_CONTENT\"}" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/issues/$ISSUE_NUMBER/comments"
+        }
+        
+        trap 'catch "$?"' ERR
