@@ -29,7 +29,19 @@ jobs:
         
         # Get the comment data
         COMMENT_BODY="${{ github.event.comment.body }}"
-        ISSUE_NUMBER="${{ github.event.comment.issue.number }}"
+        
+        # Try to get issue number from different possible locations
+        if [ -n "${{ github.event.issue.number }}" ]; then
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+        elif [ -n "${{ github.event.comment.issue.number }}" ]; then
+          ISSUE_NUMBER="${{ github.event.comment.issue.number }}"
+        elif [ -n "${{ github.event.pull_request.number }}" ]; then
+          ISSUE_NUMBER="${{ github.event.pull_request.number }}"
+        else
+          # Extract issue number from the comment URL
+          ISSUE_URL="${{ github.event.comment.html_url }}"
+          ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+$')
+        fi
         
         if [ -z "$ISSUE_NUMBER" ]; then
           echo "⚠️ No issue number found, skipping cleanup"
