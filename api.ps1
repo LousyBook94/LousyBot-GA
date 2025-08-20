@@ -3,7 +3,7 @@
 
 $apiKey = "key"
 $baseUrl = "https://text.pollinations.ai/openai/chat/completions"
-$model = "claude"
+$model = "gpt-5-nano"
 
 Write-Host "🧪 Testing API endpoint: $baseUrl" -ForegroundColor Green
 
@@ -46,7 +46,7 @@ try {
     # Test different models
     Write-Host "`n🔄 Testing with different models..." -ForegroundColor Yellow
     
-    $models = @("gpt-3.5-turbo", "gpt-4", "claude-3-sonnet-20240229")
+    $models = @("gpt-3.5-turbo", "gpt-4", "gpt-5-nano")
     
     foreach ($testModel in $models) {
         Write-Host "Testing model: $testModel" -ForegroundColor Cyan

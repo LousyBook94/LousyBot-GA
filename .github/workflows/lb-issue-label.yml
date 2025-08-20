@@ -35,7 +35,7 @@ jobs:
         echo "🧠 Generating AI-powered issue labels..."
         
         # Configuration
-        MODEL="${LB_MODEL:-claude}"
+        MODEL="${LB_MODEL:-gpt-5-nano}"
         BASE_URL="${LB_BASE_URL:-https://text.pollinations.ai/openai/chat/completions}"
         API_KEY="$LB_API_KEY"
         

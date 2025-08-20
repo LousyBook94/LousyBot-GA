@@ -1,9 +1,13 @@
 ## On Chat Begin
-- Always use the `context7` MCP to load **GitHub Script documentation** at the start of every chat.
+- ⚠️ MANDATORY: MUST use the `context7` MCP to load **GitHub Script documentation** at the start of every chat.
 - Assume Context7 MCP is pre‑connected and ready.
+- Failure to load GitHub Script docs will result in chat termination.
 
-
-- ALWAYS ALWAYS LOAD THE `Github Script` docs using context7 mcp.
+## Documentation Update Policy
+- After ANY changes to the codebase or workflows:
+  1. Update README.md with new features, changes, or requirements
+  2. Update SETUP.md with modified setup steps or configuration
+  3. Verify all documentation is synchronized
 
 ## GitHub App Action Policy
 - For all GitHub App–related operations (commenting, labelling, closing issues, etc.):

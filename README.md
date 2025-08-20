@@ -39,7 +39,7 @@ For detailed setup instructions, see [SETUP.md](SETUP.md).
 - `LB_API_KEY` - Your AI service API key
 
 ### Optional Configuration
-- `LB_MODEL` - AI model (default: `claude`)
+- `LB_MODEL` - AI model (default: `gpt-5-nano`)
 - `LB_BASE_URL` - API endpoint (default: Pollinations AI)
 - `APP_ID` - GitHub App ID (for enhanced permissions)
 - `LB_PRIVATE_KEY` - GitHub App private key
@@ -72,12 +72,11 @@ For detailed setup instructions, see [SETUP.md](SETUP.md).
 
 ### Pollinations AI (Default)
 - Free tier available
-- Multiple models: `claude`, `gpt-3.5-turbo`, `gpt-4`
+- Multiple models: `gpt-5-nano`, `gpt-3.5-turbo`, `gpt-4`
 - No registration required for basic usage
 
 ### OpenAI Compatible APIs
 - OpenAI API
-- Anthropic Claude API
 - Custom endpoints
 - Any OpenAI-compatible service
 
