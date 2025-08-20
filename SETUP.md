@@ -24,7 +24,7 @@ Navigate to your repository's **Settings > Secrets and variables > Actions** and
 
 | Secret Name | Description | Default Value |
 |-------------|-------------|---------------|
-| `LB_MODEL` | AI model to use | `claude` |
+| `LB_MODEL` | AI model to use | `gpt-5-nano` |
 | `LB_BASE_URL` | API endpoint URL | `https://text.pollinations.ai/openai/chat/completions` |
 
 ### GitHub App Integration (Optional but Recommended)
